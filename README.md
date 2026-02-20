@@ -34,6 +34,9 @@ python main.py
 
 # Resume from a checkpoint
 python main.py --headless --checkpoint checkpoints/archon_iter_0100.pt
+
+# Play against a saved checkpoint in your browser (port 5001)
+python play.py --checkpoint checkpoints/archon_iter_0100.pt --sims 20
 ```
 
 ---
@@ -169,12 +172,44 @@ After all simulations, the **improved policy** $\pi$ is derived from visit count
 $$\pi(a \mid s) = \frac{N(s,a)^{1/\tau}}{\displaystyle\sum_{a'} N(s,a')^{1/\tau}}$$
 
 Temperature $\tau$ controls exploration:
-- $\tau = 1$: sample proportionally to visit counts (used for the first 20 plies)
-- $\tau \to 0$: always pick the most-visited move (greedy; used after ply 20)
+- $\tau = 1$: sample proportionally to visit counts (used for the first 120 plies)
+- $\tau \to 0$: always pick the most-visited move (greedy; used after ply 120)
 
 Because MCTS has searched 25 positions ahead before computing $\pi$, this distribution
 is a strictly *better* policy than the network's raw output — and that gap is what
 the network learns to close.
+
+### How 25 Simulations Become a Move
+
+A common point of confusion: the 25 simulations do **not** produce 25 candidate moves.
+They produce **visit counts across all legal moves** from the root position.
+
+Each simulation is one traversal of the tree — select a path down, expand a leaf,
+evaluate it with the network, back up the value. The same move can be visited on
+multiple simulations or zero times. After 25 simulations a typical distribution might
+look like:
+
+```
+e2e4 → visited 9 times    ← most explored
+d2d4 → visited 7 times
+g1f3 → visited 5 times
+c2c4 → visited 2 times
+...  → 0–1 visits each
+```
+
+The move is then chosen from this distribution (sampled or greedy depending on
+temperature). The network's raw policy output never directly picks a move — it only
+sets the **initial priors** $P(s,a)$ that guide which branches get explored first.
+
+The network is called exactly **once per simulation** on the leaf node (plus once at
+root expansion before the loop begins — 26 network calls total). The policy head and
+value head serve distinct roles:
+
+- **Policy head → priors $P(s,a)$**: steers simulations toward promising branches early
+- **Value head → $Q(s,a)$**: accumulates as visit counts grow, refining the estimate
+
+Both signals feed into the PUCT score. The visit counts that result from resolving
+those signals over 25 simulations are what ultimately determine move selection.
 
 ---
 
@@ -187,7 +222,14 @@ $$\mathcal{D}_{\text{game}} = \{(s_t,\, \pi_t,\, z_t)\}_{t=0}^{T}$$
 - $s_t$ — board state tensor at ply $t$
 - $\pi_t$ — MCTS visit-count policy at ply $t$
 - $z_t$ — game outcome **from the perspective of the player to move at ply $t$**:
-  $+1$ (that side won), $-1$ (that side lost), $0$ (draw)
+  $+1$ (that side won), $-1$ (that side lost), $-0.1$ (draw)
+
+The draw value of $-0.1$ rather than $0$ is a deliberate design choice. With draws
+scored as $0$, the value head finds a trivial minimum by outputting a constant near
+zero, which gives near-zero MSE loss on a draw-saturated buffer and stops learning.
+Scoring draws as $-0.1$ means both sides have a weak incentive to play for a win,
+and the value head always has a non-zero target to train against. The reward signal
+remains purely outcome-based — no board evaluation or heuristics are involved.
 
 The sign of $z_t$ alternates with each ply because the players alternate. All examples
 from a game are pushed into a **replay buffer** (capacity 50 000). Mini-batches are
@@ -298,9 +340,9 @@ At ~45 seconds per iteration on a single GPU, 2 000 iterations ≈ 25 hours of t
 | `num_simulations` | 25 | MCTS simulations per move |
 | `c_puct` | 1.4 | Exploration constant |
 | `dirichlet_alpha` | 0.3 | Noise concentration (matches chess branching factor) |
-| `dirichlet_epsilon` | 0.25 | Noise fraction at root |
+| `dirichlet_epsilon` | 0.50 | Noise fraction at root |
 | `temperature` | 1.0 | Move diversity (early game) |
-| `temp_threshold` | 20 | Plies before switching to greedy |
+| `temp_threshold` | 120 | Plies before switching to greedy |
 | `games_per_iteration` | 8 | Self-play games per cycle |
 | `max_game_length` | 200 | Cap before draw adjudication |
 | `batch_size` | 128 | Mini-batch size |
@@ -317,6 +359,7 @@ At ~45 seconds per iteration on a single GPU, 2 000 iterations ≈ 25 hours of t
 ```
 archon/
 ├── main.py                  Entry point, argument parsing, logging
+├── play.py                  Play vs AI in browser (port 5001, any checkpoint)
 ├── config.py                All hyperparameters in one place
 ├── env/
 │   └── chess_env.py         RL wrapper: board encoding, action space, step()
@@ -333,7 +376,9 @@ archon/
 ├── ui/
 │   ├── dashboard.py         SharedState (thread-safe producer/consumer)
 │   ├── web_app.py           Flask app + SSE endpoint
-│   └── templates/index.html Live training dashboard
+│   └── templates/
+│       ├── index.html       Live training dashboard
+│       └── play.html        Play-vs-AI browser UI
 ├── checkpoints/             Saved model weights (.pt)
 └── games/                   PGN files for every self-play game
 ```
