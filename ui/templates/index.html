@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archon — Chess RL Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0f0f1e;
+      --panel:   #16213e;
+      --border:  #2a2a4a;
+      --accent:  #7b8cde;
+      --gold:    #e8c792;
+      --green:   #4caf50;
+      --red:     #e53935;
+      --yellow:  #ffc107;
+      --cyan:    #26c6da;
+      --text:    #d0d0e0;
+      --dim:     #888899;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Floating tooltip ───────────────────────────────────────────────── */
+    #tt {
+      position: fixed;
+      background: #12122e;
+      color: var(--text);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
+      line-height: 1.55;
+      max-width: 290px;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    }
+    #tt b { color: var(--gold); }
+    #tt i { color: var(--cyan); font-style: normal; }
+    [data-tip] { cursor: help; }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    #header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 0 14px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    #header h1 { color: var(--gold); font-size: 14px; white-space: nowrap; margin-right: 6px; }
+    .stat-pill {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 9px;
+      font-size: 11px;
+      color: var(--dim);
+      white-space: nowrap;
+    }
+    .stat-pill span { color: var(--accent); font-weight: bold; }
+    #conn-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      flex-shrink: 0;
+      margin-left: 4px;
+      transition: background 0.3s;
+    }
+    #conn-dot.live { background: var(--green); }
+
+    /* ── Main grid ──────────────────────────────────────────────────────── */
+    #main {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      gap: 4px;
+      padding: 4px 4px 0;
+    }
+
+    /* ── Left column ────────────────────────────────────────────────────── */
+    #left {
+      display: flex;
+      flex-direction: column;
+      width: 60%;
+      gap: 4px;
+      min-height: 0;
+    }
+
+    #board-panel {
+      flex: 1;
+      min-height: 0;
+      background: var(--panel);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 10px;
+      background: rgba(123,140,222,0.08);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .panel-label { font-size: 11px; color: var(--dim); }
+    #board-mode-label { font-size: 11px; color: var(--green); font-weight: bold; }
+
+    #board-svg-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      padding: 4px;
+    }
+    #board-svg-wrap svg {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+    }
+
+    #moves-panel {
+      flex-shrink: 0;
+      height: 130px;
+      background: var(--panel);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 6px 10px;
+      overflow-y: auto;
+    }
+    #moves-panel::-webkit-scrollbar { width: 4px; }
+    #moves-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    #moves-panel h3 { color: var(--accent); font-size: 11px; margin-bottom: 5px; }
+    #move-list { display: flex; flex-wrap: wrap; gap: 0 6px; font-size: 12px; line-height: 1.7; }
+    .move-pair .mn { color: var(--dim); }
+    .move-pair .wm { color: #ffffff; font-weight: bold; }
+    .move-pair .bm { color: #c8c8c8; }
+    #result-label { margin-top: 4px; font-size: 12px; font-weight: bold; }
+
+    /* ── Right column ───────────────────────────────────────────────────── */
+    #right {
+      display: flex;
+      flex-direction: column;
+      width: 40%;
+      gap: 4px;
+      min-height: 0;
+    }
+
+    #loss-panel {
+      flex: 1;
+      min-height: 0;
+      background: var(--panel);
+      border: 1px solid #c8963e;
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      padding: 6px 8px;
+    }
+    .chart-header { display: flex; align-items: center; gap: 10px; flex-shrink: 0; margin-bottom: 4px; }
+    .chart-header h3 { color: var(--yellow); font-size: 11px; }
+    .chart-legend { display: flex; gap: 10px; }
+    .leg-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); cursor: help; }
+    .leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    #loss-chart-wrap { flex: 1; min-height: 0; position: relative; }
+
+    #stats-panel {
+      flex: 1;
+      min-height: 0;
+      background: var(--panel);
+      border: 1px solid var(--green);
+      border-radius: 4px;
+      padding: 6px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    #stats-panel h3 { color: var(--cyan); font-size: 11px; flex-shrink: 0; }
+    #wdl-bar-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    #wdl-bar { flex: 1; height: 13px; border-radius: 3px; overflow: hidden; display: flex; }
+    #wdl-w { background: var(--green); transition: width 0.4s; }
+    #wdl-d { background: var(--yellow); transition: width 0.4s; }
+    #wdl-l { background: var(--red); transition: width 0.4s; }
+    #wdl-label { font-size: 10px; color: var(--dim); white-space: nowrap; }
+    #elo-line { font-size: 12px; flex-shrink: 0; }
+    #elo-val { color: var(--cyan); font-weight: bold; }
+    #elo-delta { font-size: 11px; margin-left: 4px; }
+    .chart-sub-label { font-size: 10px; color: var(--dim); flex-shrink: 0; }
+    #elo-chart-wrap { flex: 1; min-height: 0; position: relative; }
+
+    /* ── Navigation bar ─────────────────────────────────────────────────── */
+    #nav-bar {
+      display: none;        /* shown only in historical mode */
+      align-items: center;
+      gap: 6px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0 10px;
+      height: 36px;
+      flex-shrink: 0;
+      margin: 4px 4px 0;
+    }
+    .nav-btn {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--accent);
+      border-radius: 3px;
+      width: 28px;
+      height: 24px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .nav-btn:hover:not(:disabled) { border-color: var(--accent); background: rgba(123,140,222,0.1); }
+    .nav-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+    #nav-play {
+      width: 52px;
+      background: rgba(123,140,222,0.12);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    #nav-counter { color: var(--gold); font-size: 11px; min-width: 220px; text-align: center; flex-shrink: 0; }
+    .nav-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+    #nav-speed { width: 80px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
+    #nav-speed-label { font-size: 10px; color: var(--dim); flex-shrink: 0; min-width: 26px; }
+    #nav-hint { font-size: 10px; color: var(--dim); flex-shrink: 0; }
+
+    /* ── Games row ──────────────────────────────────────────────────────── */
+    #games-row {
+      flex-shrink: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0 8px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+      margin: 4px 4px 0;
+    }
+    #games-row::-webkit-scrollbar { height: 3px; }
+    #games-row::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    #games-label { font-size: 11px; color: var(--dim); white-space: nowrap; flex-shrink: 0; }
+    #live-btn {
+      display: none;
+      background: var(--accent);
+      color: #0f0f1e;
+      border: none;
+      border-radius: 3px;
+      padding: 2px 10px;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    #live-btn:hover { background: #9baae8; }
+    .game-btn {
+      border: 1px solid transparent;
+      border-radius: 3px;
+      padding: 2px 9px;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .game-btn.win  { background: #1b5e20; color: #a5d6a7; border-color: #2e7d32; }
+    .game-btn.loss { background: #7f0000; color: #ef9a9a; border-color: #b71c1c; }
+    .game-btn.draw { background: #3e2700; color: #ffcc80; border-color: #e65100; }
+    .game-btn:hover { filter: brightness(1.25); }
+    .game-btn.active { outline: 2px solid var(--gold); outline-offset: 1px; }
+    #no-games-msg { font-size: 11px; color: var(--dim); flex-shrink: 0; }
+
+    /* ── Log panel ──────────────────────────────────────────────────────── */
+    #log-panel {
+      flex-shrink: 0;
+      height: 90px;
+      background: var(--panel);
+      border: 1px solid #333355;
+      border-radius: 4px;
+      overflow-y: auto;
+      padding: 4px 8px;
+      margin: 4px 4px 4px;
+      font-size: 11px;
+    }
+    #log-panel::-webkit-scrollbar { width: 4px; }
+    #log-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .log-info    { color: var(--dim); }
+    .log-warning { color: var(--yellow); }
+    .log-error   { color: var(--red); }
+  </style>
+</head>
+<body>
+
+<!-- Floating tooltip -->
+<div id="tt"></div>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<div id="header">
+  <h1>⚔ Archon — Chess RL Monitor</h1>
+
+  <div class="stat-pill" data-tip="<b>Training iteration</b><br>One complete cycle: play N self-play games → sample random minibatches from the replay buffer → run gradient updates → save checkpoint. Each iteration the network should improve slightly.">
+    Iteration <span id="hdr-iter">—</span>
+  </div>
+
+  <div class="stat-pill" data-tip="<b>Total self-play games</b><br>Games completed since training started. Each game generates a list of experience triples <i>(board state, MCTS policy π, game outcome z)</i> that are pushed into the replay buffer.">
+    Games <span id="hdr-games">0</span>
+  </div>
+
+  <div class="stat-pill" data-tip="<b>Replay buffer size</b><br>Stores the most recent 50,000 experience triples. Training samples are drawn <i>randomly</i> from this pool — random sampling breaks the temporal correlation between consecutive moves, which stabilises gradient descent. Training only begins once ≥500 samples are buffered.">
+    Buffer <span id="hdr-buf">0</span>
+  </div>
+
+  <div class="stat-pill" data-tip="<b>Elo rating</b><br>Estimated strength relative to earlier versions of itself. Updated every 5 iterations by playing 10 evaluation games against the previous checkpoint. Starts at 1000; consistent upward movement means genuine improvement. K-factor = 32.">
+    ELO <span id="hdr-elo">1000</span>
+  </div>
+
+  <div style="flex:1"></div>
+  <div id="conn-dot" title="SSE stream — green = connected"></div>
+</div>
+
+<!-- ── Main content ────────────────────────────────────────────────────────── -->
+<div id="main">
+
+  <!-- Left: board + moves -->
+  <div id="left">
+
+    <div id="board-panel">
+      <div class="panel-header">
+        <span class="panel-label"
+          data-tip="<b>Self-play board</b><br>Shows the current position during training. The network selects moves via <i>MCTS (Monte Carlo Tree Search)</i>: 25 simulations are run from the current position, guided by the network's policy and value heads, to produce a stronger move distribution than the raw network alone. Yellow-green squares = last move played.">
+          ⬛ Self-Play Board
+        </span>
+        <span id="board-mode-label">● Live</span>
+      </div>
+      <div id="board-svg-wrap">
+        <!-- SVG injected here by SSE -->
+      </div>
+    </div>
+
+    <div id="moves-panel">
+      <h3 data-tip="<b>Move history</b> in Standard Algebraic Notation (SAN).<br>During live play moves animate in one at a time — white first, then black's response — so you can follow the game as it unfolds. Click a completed game button below to replay it move-by-move with ◄ ►.">
+        Move History
+      </h3>
+      <div id="move-list"><span style="color:var(--dim)">No moves yet.</span></div>
+      <div id="result-label"></div>
+    </div>
+
+  </div>
+
+  <!-- Right: loss chart + stats -->
+  <div id="right">
+
+    <div id="loss-panel">
+      <div class="chart-header">
+        <h3 data-tip="<b>Training loss</b><br>The objective minimised by gradient descent each iteration. Lower is better. Expect a gradual decrease over hundreds of iterations with high variance early on — this is normal as the network bootstraps from random play.">
+          Training Loss
+        </h3>
+        <div class="chart-legend">
+          <span class="leg-item"
+            data-tip="<b>Policy loss</b> (cross-entropy)<br>Measures how well the network's raw move probabilities match the MCTS visit distribution π. MCTS searches deeper than the network alone, so it acts as a stronger teacher. The network learns to internalise the search.">
+            <span class="leg-dot" style="background:#ffd600"></span>Policy
+          </span>
+          <span class="leg-item"
+            data-tip="<b>Value loss</b> (mean squared error)<br>Measures how accurately the network predicts the game outcome from a position: <i>+1 = white wins, 0 = draw, −1 = black wins</i>. A well-calibrated value head enables MCTS to prune unpromising branches.">
+            <span class="leg-dot" style="background:#26c6da"></span>Value
+          </span>
+          <span class="leg-item"
+            data-tip="<b>Combined loss</b> = policy + value<br>The total scalar loss passed to the optimiser (Adam). Both heads share the residual tower and are trained jointly via a single backward pass per update step.">
+            <span class="leg-dot" style="background:#e040fb"></span>Combined
+          </span>
+        </div>
+      </div>
+      <div id="loss-chart-wrap">
+        <canvas id="loss-chart"></canvas>
+      </div>
+    </div>
+
+    <div id="stats-panel">
+      <h3 data-tip="<b>Self-play performance</b><br>Tracks game outcomes since training started. Because both sides use the same network, roughly equal W/L is normal — the network is playing against itself. Watch for ELO growth as the primary signal of improvement.">
+        Performance
+      </h3>
+
+      <div id="wdl-bar-wrap"
+        data-tip="<b>Win / Draw / Loss bar</b><br>Cumulative self-play results. <i>Green = white won</i>, <i>yellow = draw</i> (50-move rule, repetition, stalemate), <i>red = black won</i>. Early training is chaotic — expect short games and many draws.">
+        <div id="wdl-bar">
+          <div id="wdl-w" style="width:33%"></div>
+          <div id="wdl-d" style="width:34%"></div>
+          <div id="wdl-l" style="width:33%"></div>
+        </div>
+        <div id="wdl-label">No games yet</div>
+      </div>
+
+      <div id="elo-line"
+        data-tip="<b>Current Elo rating</b><br>Updated after every evaluation run (every 5 iterations). The delta (±) shows change from the previous evaluation. If Elo is flat or falling, the network may need more self-play data or a lower learning rate.">
+        ELO: <span id="elo-val">1000</span>
+        <span id="elo-delta"></span>
+      </div>
+
+      <div class="chart-sub-label"
+        data-tip="<b>Elo history sparkline</b><br>Each point is one evaluation run. A consistent upward trend confirms the network is genuinely getting stronger, not just overfitting to its own games.">
+        Elo history ↓
+      </div>
+      <div id="elo-chart-wrap">
+        <canvas id="elo-chart"></canvas>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Navigation bar (historical game mode only) ─────────────────────────── -->
+<div id="nav-bar">
+  <button class="nav-btn" id="nav-start" onclick="navGo(0)"     title="Jump to start (Home)">|◄</button>
+  <button class="nav-btn" id="nav-prev"  onclick="navStep(-1)"  title="Previous move (←)">◄</button>
+  <span id="nav-counter">Starting position</span>
+  <button class="nav-btn" id="nav-next"  onclick="navStep(1)"   title="Next move (→)">►</button>
+  <button class="nav-btn" id="nav-end"   onclick="navGo(99999)" title="Jump to end (End)">►|</button>
+  <div class="nav-sep"></div>
+  <button class="nav-btn" id="nav-play"  onclick="toggleAutoPlay()" title="Auto-play (Space)">▶ Play</button>
+  <input type="range" id="nav-speed" min="200" max="2000" step="200" value="600"
+         title="Auto-play speed" oninput="onSpeedChange()">
+  <span id="nav-speed-label">0.6s</span>
+  <div class="nav-sep"></div>
+  <span id="nav-hint">← → Space · Esc for live</span>
+</div>
+
+<!-- ── Games row ──────────────────────────────────────────────────────────── -->
+<div id="games-row">
+  <span id="games-label">Games:</span>
+  <button id="live-btn" onclick="goLive()">◉ Live</button>
+  <span id="no-games-msg">No games yet.</span>
+</div>
+
+<!-- ── Log ────────────────────────────────────────────────────────────────── -->
+<div id="log-panel"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let viewingLive       = true;
+let lastSSEState      = null;
+let knownGames        = 0;
+let logShown          = 0;
+let lossChart         = null;
+let eloChart          = null;
+
+// Live move animation
+let prevLiveMovesLen   = 0;
+let liveMovesDisplayed = 0;
+let liveAllMoves       = [];
+let liveResult         = null;
+let moveAnimQueue      = [];
+let moveAnimTimer      = null;
+
+// Historical game navigation
+let currentGame   = null;   // { id, moves[], totalPlies, result }
+let currentPly    = 0;
+let autoPlayTimer = null;
+
+// ── Tooltip system ────────────────────────────────────────────────────────────
+const tt = document.getElementById('tt');
+let tipTarget = null;
+
+document.addEventListener('mouseover', e => {
+  const el = e.target.closest('[data-tip]');
+  if (el === tipTarget) return;
+  tipTarget = el;
+  if (el) {
+    tt.innerHTML = el.getAttribute('data-tip');
+    tt.style.opacity = '1';
+  } else {
+    tt.style.opacity = '0';
+  }
+});
+
+document.addEventListener('mousemove', e => {
+  if (tt.style.opacity !== '1') return;
+  const x = e.clientX + 14;
+  const y = e.clientY + 14;
+  tt.style.left = Math.min(x, window.innerWidth  - tt.offsetWidth  - 8) + 'px';
+  tt.style.top  = Math.min(y, window.innerHeight - tt.offsetHeight - 8) + 'px';
+});
+
+// ── Chart initialisation ──────────────────────────────────────────────────────
+function initCharts() {
+  const sharedOpts = {
+    animation: false,
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { display: false },
+      y: { ticks: { color: '#888899', font: { size: 10 } }, grid: { color: '#2a2a4a' } },
+    },
+  };
+
+  lossChart = new Chart(document.getElementById('loss-chart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'Policy',   data: [], borderColor: '#ffd600', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+        { label: 'Value',    data: [], borderColor: '#26c6da', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+        { label: 'Combined', data: [], borderColor: '#e040fb', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+      ],
+    },
+    options: { ...sharedOpts },
+  });
+
+  eloChart = new Chart(document.getElementById('elo-chart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        data: [], borderColor: '#26c6da', borderWidth: 1.5, pointRadius: 0,
+        fill: true, backgroundColor: 'rgba(38,198,218,0.08)', tension: 0.3,
+      }],
+    },
+    options: { ...sharedOpts },
+  });
+}
+
+// ── SSE connection ────────────────────────────────────────────────────────────
+function connectSSE() {
+  const dot = document.getElementById('conn-dot');
+  const es  = new EventSource('/stream');
+
+  es.onopen  = () => dot.classList.add('live');
+  es.onerror = () => {
+    dot.classList.remove('live');
+    es.close();
+    setTimeout(connectSSE, 3000);
+  };
+
+  es.onmessage = event => {
+    const s = lastSSEState = JSON.parse(event.data);
+
+    // Header stats
+    document.getElementById('hdr-iter').textContent  = s.iteration || '—';
+    document.getElementById('hdr-games').textContent = (s.games || []).length;
+    document.getElementById('hdr-buf').textContent   = (s.buffer_size || 0).toLocaleString();
+    const latestElo = (s.elo_history || [1000]).slice(-1)[0];
+    document.getElementById('hdr-elo').textContent   = Math.round(latestElo);
+
+    // Live board + animated moves
+    if (viewingLive) {
+      animateLiveUpdate(s.moves || [], s.result, s.board_svg || '');
+    }
+
+    // Loss chart
+    if ((s.combined_losses || []).length) {
+      lossChart.data.labels           = s.combined_losses.map((_, i) => i + 1);
+      lossChart.data.datasets[0].data = s.policy_losses   || [];
+      lossChart.data.datasets[1].data = s.value_losses    || [];
+      lossChart.data.datasets[2].data = s.combined_losses || [];
+      lossChart.update('none');
+    }
+
+    // WDL bar
+    const w = s.wins || 0, d = s.draws || 0, l = s.losses || 0, total = w + d + l;
+    if (total > 0) {
+      document.getElementById('wdl-w').style.width = (w / total * 100) + '%';
+      document.getElementById('wdl-d').style.width = (d / total * 100) + '%';
+      document.getElementById('wdl-l').style.width = (l / total * 100) + '%';
+      document.getElementById('wdl-label').textContent =
+        `${w}W  ${d}D  ${l}L  (${(w / total * 100).toFixed(1)}% wins)`;
+    }
+
+    // ELO
+    if ((s.elo_history || []).length) {
+      const elo   = s.elo_history.slice(-1)[0];
+      const prev  = s.elo_history.length >= 2 ? s.elo_history.slice(-2)[0] : elo;
+      const delta = elo - prev;
+      document.getElementById('elo-val').textContent = Math.round(elo);
+      const dEl = document.getElementById('elo-delta');
+      dEl.textContent = (delta >= 0 ? '+' : '') + Math.round(delta);
+      dEl.style.color = delta >= 0 ? 'var(--green)' : 'var(--red)';
+      eloChart.data.labels           = s.elo_history.map((_, i) => i);
+      eloChart.data.datasets[0].data = s.elo_history;
+      eloChart.update('none');
+    }
+
+    // New game buttons
+    const games = s.games || [];
+    if (games.length > knownGames) {
+      document.getElementById('no-games-msg').style.display = 'none';
+      for (let i = knownGames; i < games.length; i++) addGameButton(games[i]);
+      knownGames = games.length;
+    }
+
+    // Log
+    const msgs = s.log_messages || [];
+    if (msgs.length > logShown) {
+      const panel = document.getElementById('log-panel');
+      for (let i = logShown; i < msgs.length; i++) {
+        const div = document.createElement('div');
+        div.className = msgs[i].includes('ERROR')   ? 'log-error'
+                      : msgs[i].includes('WARNING') ? 'log-warning'
+                      : 'log-info';
+        div.textContent = msgs[i];
+        panel.appendChild(div);
+      }
+      logShown = msgs.length;
+      panel.scrollTop = panel.scrollHeight;
+    }
+  };
+}
+
+// ── Live move animation ───────────────────────────────────────────────────────
+function animateLiveUpdate(moves, result, boardSvg) {
+  // Detect new game (move list shrank)
+  if (moves.length < prevLiveMovesLen) {
+    liveMovesDisplayed = 0;
+    moveAnimQueue      = [];
+    if (moveAnimTimer) { clearTimeout(moveAnimTimer); moveAnimTimer = null; }
+  }
+  prevLiveMovesLen = moves.length;
+  liveAllMoves     = moves;
+  liveResult       = result;
+
+  // Board always jumps to latest SSE position
+  document.getElementById('board-svg-wrap').innerHTML = boardSvg;
+
+  // Queue any moves not yet shown for sequential display
+  if (moves.length > liveMovesDisplayed) {
+    for (let i = liveMovesDisplayed; i < moves.length; i++) moveAnimQueue.push(i);
+    liveMovesDisplayed = moves.length;
+    if (!moveAnimTimer) drainMoveQueue();
+  }
+}
+
+function drainMoveQueue() {
+  if (moveAnimQueue.length === 0) { moveAnimTimer = null; return; }
+  const idx      = moveAnimQueue.shift();
+  const isLast   = moveAnimQueue.length === 0;
+  renderMoves(liveAllMoves.slice(0, idx + 1), isLast ? liveResult : null);
+  moveAnimTimer = setTimeout(drainMoveQueue, 450);
+}
+
+// ── Historical game navigation ────────────────────────────────────────────────
+function loadGame(id) {
+  fetch('/api/game/' + id)
+    .then(r => r.json())
+    .then(data => {
+      currentGame = { id, moves: data.moves || [], totalPlies: (data.moves || []).length, result: data.result };
+      currentPly  = currentGame.totalPlies;
+      viewingLive = false;
+
+      stopAutoPlay();
+      document.getElementById('live-btn').style.display  = 'inline-block';
+      document.getElementById('nav-bar').style.display   = 'flex';
+      document.getElementById('board-mode-label').textContent = `Game ${id}`;
+      document.getElementById('board-mode-label').style.color = 'var(--accent)';
+      document.querySelectorAll('.game-btn').forEach(b => b.classList.remove('active'));
+      const btn = document.getElementById('gbtn-' + id);
+      if (btn) btn.classList.add('active');
+
+      document.getElementById('board-svg-wrap').innerHTML = data.board_svg || '';
+      renderMoves(data.moves || [], data.result);
+      updateNavCounter();
+    });
+}
+
+function navGo(ply) {
+  if (!currentGame) return;
+  const t = Math.max(0, Math.min(ply, currentGame.totalPlies));
+  if (t === currentPly) return;
+  currentPly = t;
+  fetchPly(currentPly);
+}
+
+function navStep(delta) { navGo(currentPly + delta); }
+
+function fetchPly(ply) {
+  if (!currentGame) return;
+  fetch(`/api/game/${currentGame.id}/ply/${ply}`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('board-svg-wrap').innerHTML = data.board_svg || '';
+      renderMoves(data.moves || [], ply === currentGame.totalPlies ? currentGame.result : null);
+      updateNavCounter();
+    });
+}
+
+function updateNavCounter() {
+  if (!currentGame) return;
+  let label;
+  if (currentPly === 0) {
+    label = 'Starting position';
+  } else {
+    const moveNum = Math.ceil(currentPly / 2);
+    const side    = currentPly % 2 === 1 ? 'White' : 'Black';
+    const san     = currentGame.moves[currentPly - 1] || '?';
+    const dot     = currentPly % 2 === 1 ? `${moveNum}.` : `${moveNum}…`;
+    label = `${dot} ${san}  ·  Ply ${currentPly} / ${currentGame.totalPlies}`;
+  }
+  if (currentPly === currentGame.totalPlies && currentGame.result) {
+    label += '  ·  ' + ({ white: '1-0', black: '0-1', draw: '½-½' }[currentGame.result] || '*');
+  }
+  document.getElementById('nav-counter').textContent = label;
+  document.getElementById('nav-prev').disabled  = currentPly <= 0;
+  document.getElementById('nav-next').disabled  = currentPly >= currentGame.totalPlies;
+  document.getElementById('nav-start').disabled = currentPly <= 0;
+  document.getElementById('nav-end').disabled   = currentPly >= currentGame.totalPlies;
+}
+
+function toggleAutoPlay() {
+  if (autoPlayTimer) {
+    stopAutoPlay();
+  } else {
+    const speed = parseInt(document.getElementById('nav-speed').value);
+    document.getElementById('nav-play').textContent = '⏸ Pause';
+    autoPlayTimer = setInterval(() => {
+      if (currentPly >= currentGame.totalPlies) { stopAutoPlay(); return; }
+      navStep(1);
+    }, speed);
+  }
+}
+
+function stopAutoPlay() {
+  if (autoPlayTimer) { clearInterval(autoPlayTimer); autoPlayTimer = null; }
+  document.getElementById('nav-play').textContent = '▶ Play';
+}
+
+function onSpeedChange() {
+  const val = parseInt(document.getElementById('nav-speed').value);
+  document.getElementById('nav-speed-label').textContent = (val / 1000).toFixed(1) + 's';
+  if (autoPlayTimer) { stopAutoPlay(); toggleAutoPlay(); }
+}
+
+function goLive() {
+  stopAutoPlay();
+  viewingLive        = true;
+  currentGame        = null;
+  liveMovesDisplayed = 0;
+  prevLiveMovesLen   = 0;
+  moveAnimQueue      = [];
+  if (moveAnimTimer) { clearTimeout(moveAnimTimer); moveAnimTimer = null; }
+
+  document.getElementById('live-btn').style.display  = 'none';
+  document.getElementById('nav-bar').style.display   = 'none';
+  document.getElementById('board-mode-label').textContent = '● Live';
+  document.getElementById('board-mode-label').style.color = 'var(--green)';
+  document.querySelectorAll('.game-btn').forEach(b => b.classList.remove('active'));
+
+  // Immediately show latest state
+  if (lastSSEState) {
+    document.getElementById('board-svg-wrap').innerHTML = lastSSEState.board_svg || '';
+    renderMoves(lastSSEState.moves || [], lastSSEState.result);
+    liveMovesDisplayed = (lastSSEState.moves || []).length;
+    prevLiveMovesLen   = liveMovesDisplayed;
+  }
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function renderMoves(moves, result) {
+  const list  = document.getElementById('move-list');
+  const resEl = document.getElementById('result-label');
+
+  if (!moves || moves.length === 0) {
+    list.innerHTML    = '<span style="color:var(--dim)">No moves yet.</span>';
+    resEl.textContent = '';
+    return;
+  }
+
+  let html = '';
+  for (let i = 0; i < moves.length; i += 2) {
+    const num = i / 2 + 1;
+    html += `<span class="move-pair">` +
+            `<span class="mn">${num}.</span> ` +
+            `<span class="wm">${moves[i] || ''}</span> ` +
+            `<span class="bm">${moves[i + 1] || ''}</span>` +
+            `</span>`;
+  }
+  list.innerHTML = html;
+
+  if (result) {
+    const label = { white: '1-0', black: '0-1', draw: '½-½' }[result] || '*';
+    const color = { white: 'var(--green)', black: 'var(--red)', draw: 'var(--yellow)' }[result] || 'var(--dim)';
+    resEl.textContent = 'Result: ' + label;
+    resEl.style.color  = color;
+  } else {
+    resEl.textContent = '';
+  }
+
+  // Scroll to latest move
+  const panel = document.getElementById('moves-panel');
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function addGameButton(game) {
+  const row = document.getElementById('games-row');
+  const sym = { white: '1-0', black: '0-1', draw: '½-½' }[game.result] || '?';
+  const cls = { white: 'win',  black: 'loss', draw: 'draw' }[game.result] || '';
+  const btn = document.createElement('button');
+  btn.className   = 'game-btn ' + cls;
+  btn.id          = 'gbtn-' + game.id;
+  btn.textContent = `G${game.id} ${sym}`;
+  btn.onclick     = () => loadGame(game.id);
+  row.appendChild(btn);
+  row.scrollLeft = row.scrollWidth;
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (!viewingLive && currentGame) {
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); stopAutoPlay(); navStep(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); navStep(1); }
+    if (e.key === 'Home')       { e.preventDefault(); stopAutoPlay(); navGo(0); }
+    if (e.key === 'End')        { e.preventDefault(); stopAutoPlay(); navGo(99999); }
+    if (e.key === ' ')          { e.preventDefault(); toggleAutoPlay(); }
+  }
+  if (e.key === 'Escape' || e.key === 'r' || e.key === 'R') goLive();
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+initCharts();
+connectSSE();
+</script>
+</body>
+</html>
