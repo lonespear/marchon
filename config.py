@@ -48,7 +48,7 @@ class ArchonConfig:
     train_steps_per_iter:    int   = 60     # gradient steps per iteration
 
     # ── Evaluation & ELO ───────────────────────────────────────────────────────
-    checkpoint_every_n_iters: int   = 1    # save model weights every N iterations
+    checkpoint_every_n_iters: int   = 25   # save model weights every N iterations
     eval_every_n_iters:       int   = 5    # run ELO evaluation games every N iterations
     eval_games:               int   = 10
     elo_k_factor:             float = 32.0
