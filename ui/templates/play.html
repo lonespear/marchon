@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Archon — Play vs AI</title>
+
+  <!-- chessboard.js 1.0.0 -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
+        crossorigin="anonymous" />
+
+  <style>
+    /* ── Reset & base ───────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    header h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #e0e0e0;
+      letter-spacing: 0.04em;
+    }
+
+    .badge {
+      background: #0f3460;
+      border: 1px solid #1a6b9a;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 0.8rem;
+      color: #90caf9;
+      white-space: nowrap;
+    }
+
+    #new-game-btn {
+      margin-left: auto;
+      background: #1565c0;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 18px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #new-game-btn:hover { background: #1976d2; }
+
+    /* ── Main layout ─────────────────────────────────────────────────────── */
+    main {
+      flex: 1;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 20px;
+      padding: 24px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Eval bar ────────────────────────────────────────────────────────── */
+    .eval-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding-top: 4px;
+    }
+
+    #eval-bar {
+      width: 24px;
+      height: 400px;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid #444;
+      position: relative;
+    }
+
+    #eval-black {
+      width: 100%;
+      background: #2b2b2b;
+      transition: height 0.4s ease;
+    }
+
+    #eval-white {
+      width: 100%;
+      background: #f0ead6;
+      flex: 1;
+    }
+
+    #eval-bar-inner {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #eval-score {
+      font-size: 0.75rem;
+      color: #aaa;
+      text-align: center;
+    }
+
+    /* ── Board column ────────────────────────────────────────────────────── */
+    .board-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #board-wrap {
+      width: 400px;
+    }
+
+    /* Ensure chessboard.js board fills wrapper */
+    #board-wrap .board-b72b1 {
+      border-radius: 4px;
+    }
+
+    #status-bar {
+      width: 400px;
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 8px 14px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: #90caf9;
+      min-height: 36px;
+      transition: color 0.3s;
+    }
+
+    #status-bar.thinking { color: #ffcc02; }
+    #status-bar.game-over { color: #ef5350; }
+
+    /* ── Move history panel ──────────────────────────────────────────────── */
+    .history-panel {
+      width: 200px;
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 460px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .history-panel h3 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #90caf9;
+      border-bottom: 1px solid #0f3460;
+      padding-bottom: 6px;
+    }
+
+    #move-list {
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .move-row {
+      display: grid;
+      grid-template-columns: 28px 1fr 1fr;
+      gap: 4px;
+      align-items: center;
+      font-size: 0.82rem;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .move-row.latest {
+      background: rgba(255, 204, 2, 0.12);
+      border: 1px solid rgba(255, 204, 2, 0.3);
+    }
+
+    .move-num {
+      color: #555;
+      font-size: 0.75rem;
+      text-align: right;
+    }
+
+    .move-white { color: #e0e0e0; }
+    .move-black { color: #b0b0b0; }
+
+    #result-display {
+      font-size: 0.8rem;
+      color: #ffcc02;
+      text-align: center;
+      padding-top: 4px;
+      min-height: 20px;
+    }
+
+    /* ── Scrollbar styling ───────────────────────────────────────────────── */
+    #move-list::-webkit-scrollbar { width: 4px; }
+    #move-list::-webkit-scrollbar-track { background: #0f3460; border-radius: 2px; }
+    #move-list::-webkit-scrollbar-thumb { background: #1a6b9a; border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header>
+    <h1>Archon — Play vs AI</h1>
+    <span class="badge" id="iter-badge">Checkpoint iter {{ iteration }}</span>
+    <span class="badge" id="elo-badge">ELO {{ elo }}</span>
+    <button id="new-game-btn" onclick="newGame()">New Game</button>
+  </header>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <main>
+
+    <!-- Eval bar -->
+    <div class="eval-column">
+      <div id="eval-bar">
+        <div id="eval-bar-inner">
+          <div id="eval-black" style="height: 50%;"></div>
+          <div id="eval-white"></div>
+        </div>
+      </div>
+      <span id="eval-score">0.00</span>
+    </div>
+
+    <!-- Board + status -->
+    <div class="board-column">
+      <div id="board-wrap"></div>
+      <div id="status-bar">Loading…</div>
+    </div>
+
+    <!-- Move history -->
+    <div class="history-panel">
+      <h3>Moves</h3>
+      <div id="move-list"></div>
+      <div id="result-display"></div>
+    </div>
+
+  </main>
+
+  <!-- ── Scripts ─────────────────────────────────────────────────────────── -->
+  <!-- jQuery (required by chessboard.js) -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"
+          integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+          crossorigin="anonymous"></script>
+
+  <!-- chess.js for move validation -->
+  <script src="https://cdn.jsdelivr.net/npm/chess.js@0.13.4/chess.min.js"
+          crossorigin="anonymous"></script>
+
+  <!-- chessboard.js -->
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"
+          crossorigin="anonymous"></script>
+
+  <script>
+    // ── State ──────────────────────────────────────────────────────────────
+    var game = new Chess();
+    var board = null;
+    var locked = false;   // true while AI is thinking or game is over
+
+    // ── Eval bar ───────────────────────────────────────────────────────────
+    function updateEvalBar(value) {
+      // value in [-1, 1] from White's perspective
+      // blackPct = how tall the dark section is (0% = White wins, 100% = Black wins)
+      var blackPct = (1 - value) / 2 * 100;
+      blackPct = Math.max(2, Math.min(98, blackPct));  // clamp: always show sliver
+      document.getElementById('eval-black').style.height = blackPct + '%';
+      var display = value >= 0 ? '+' + value.toFixed(2) : value.toFixed(2);
+      document.getElementById('eval-score').textContent = display;
+    }
+
+    // ── Move history ───────────────────────────────────────────────────────
+    function renderMoves(moves, result) {
+      var list = document.getElementById('move-list');
+      list.innerHTML = '';
+
+      for (var i = 0; i < moves.length; i += 2) {
+        var moveNum = Math.floor(i / 2) + 1;
+        var whiteMove = moves[i] || '';
+        var blackMove = moves[i + 1] || '';
+        var isLatest = (i + 2 >= moves.length);
+
+        var row = document.createElement('div');
+        row.className = 'move-row' + (isLatest ? ' latest' : '');
+        row.innerHTML =
+          '<span class="move-num">' + moveNum + '.</span>' +
+          '<span class="move-white">' + escapeHtml(whiteMove) + '</span>' +
+          '<span class="move-black">' + escapeHtml(blackMove) + '</span>';
+        list.appendChild(row);
+      }
+
+      // Scroll to bottom
+      list.scrollTop = list.scrollHeight;
+
+      // Result line
+      var resultEl = document.getElementById('result-display');
+      resultEl.textContent = result || '';
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    // ── Status bar ─────────────────────────────────────────────────────────
+    function setStatus(text, cls) {
+      var bar = document.getElementById('status-bar');
+      bar.textContent = text;
+      bar.className = cls || '';
+    }
+
+    // ── Lock / unlock board dragging ───────────────────────────────────────
+    function setLocked(val) {
+      locked = val;
+    }
+
+    // ── Load current state from server ─────────────────────────────────────
+    function loadState() {
+      fetch('/api/state')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          game.load(data.fen);
+          if (board) {
+            board.position(data.fen);
+          } else {
+            initBoard(data.fen);
+          }
+          renderMoves(data.moves, data.result);
+          updateEvalBar(data.value);
+
+          var cls = '';
+          if (data.game_over) cls = 'game-over';
+          setStatus(data.status, cls);
+          setLocked(data.game_over);
+        })
+        .catch(function(err) {
+          setStatus('Connection error', '');
+          console.error(err);
+        });
+    }
+
+    // ── Send human move to server ──────────────────────────────────────────
+    function sendMove(uci) {
+      setLocked(true);
+      setStatus('AI is thinking…', 'thinking');
+
+      fetch('/api/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ move: uci })
+      })
+        .then(function(r) {
+          if (r.status === 429) {
+            throw new Error('busy');
+          }
+          return r.json();
+        })
+        .then(function(data) {
+          if (data.error) {
+            console.warn('Move error:', data.error);
+            // Revert board to server's current FEN
+            loadState();
+            return;
+          }
+          // Update chess.js state
+          game.load(data.fen);
+          // Update board display
+          board.position(data.fen);
+          renderMoves(data.moves, data.result);
+          updateEvalBar(data.value);
+
+          var cls = '';
+          if (data.game_over) cls = 'game-over';
+          setStatus(data.status, cls);
+          setLocked(data.game_over);
+        })
+        .catch(function(err) {
+          console.error('sendMove error:', err);
+          loadState();  // resync on any error
+        });
+    }
+
+    // ── New game ───────────────────────────────────────────────────────────
+    function newGame() {
+      fetch('/api/reset', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          game.reset();
+          board.start();
+          renderMoves([], '');
+          updateEvalBar(0);
+          setStatus('Your move (White)', '');
+          setLocked(false);
+        })
+        .catch(function(err) {
+          console.error('newGame error:', err);
+        });
+    }
+
+    // ── chessboard.js callbacks ────────────────────────────────────────────
+    function onDragStart(source, piece, position, orientation) {
+      // Reject drag if locked, game over, or piece is Black
+      if (locked) return false;
+      if (game.game_over()) return false;
+      if (piece.search(/^b/) !== -1) return false;  // 'b' prefix = Black piece
+    }
+
+    function onDrop(source, target, piece, newPos, oldPos, orientation) {
+      // Attempt promotion to queen by default
+      var uci = source + target;
+      var promoMove = null;
+
+      // Check if this is a pawn reaching the back rank (promotion)
+      if (piece === 'wP' && target[1] === '8') {
+        uci = source + target + 'q';  // default queen
+        promoMove = 'q';
+      }
+
+      // Validate with chess.js
+      var move = game.move({ from: source, to: target, promotion: promoMove || 'q' });
+      if (move === null) {
+        return 'snapback';
+      }
+
+      // Undo chess.js move (server is the authority) — keep visual
+      game.undo();
+
+      sendMove(uci);
+    }
+
+    function onSnapEnd() {
+      // Sync board visuals with chess.js state after animation
+      board.position(game.fen());
+    }
+
+    // ── Board initialisation ───────────────────────────────────────────────
+    function initBoard(fen) {
+      var cfg = {
+        draggable: true,
+        position: fen || 'start',
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: onSnapEnd,
+      };
+      board = Chessboard('board-wrap', cfg);
+    }
+
+    // ── Boot ───────────────────────────────────────────────────────────────
+    $(document).ready(function() {
+      loadState();
+    });
+  </script>
+</body>
+</html>

@@ -26,12 +26,12 @@ class ArchonConfig:
 
     # ── MCTS ───────────────────────────────────────────────────────────────────
     # Reference (full strength): num_simulations=50
-    num_simulations:   int   = 100   # simulations per move (higher = stronger)
+    num_simulations:   int   = 25    # simulations per move (higher = stronger)
     c_puct:            float = 1.4   # exploration vs exploitation balance
     dirichlet_alpha:   float = 0.3   # noise concentration at root
     dirichlet_epsilon: float = 0.25  # fraction of noise mixed into root priors
     temperature:       float = 1.0   # move diversity in early game
-    temp_threshold:    int   = 60    # plies before switching to greedy selection
+    temp_threshold:    int   = 120   # plies before switching to greedy selection
 
     # ── Self-play ──────────────────────────────────────────────────────────────
     # Reference (full strength): games_per_iteration=10, max_game_length=300

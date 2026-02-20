@@ -76,7 +76,7 @@ class SelfPlay:
                 if ply < self.config.temp_threshold
                 else 0.0
             )
-            add_noise = ply < 4   # Dirichlet noise only in the opening
+            add_noise = ply < self.config.temp_threshold   # noise throughout the exploratory phase
 
             policy_dist, legal_moves = self.mcts.search(
                 env.board, add_noise=add_noise
