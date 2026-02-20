@@ -20,7 +20,7 @@ class ArchonConfig:
     # ── Model architecture ─────────────────────────────────────────────────────
     # Increasing these improves strength but slows training.
     # Good starter values for CPU / Raspberry Pi: 6 blocks, 64 channels.
-    num_planes:     int = 18    # input feature planes (see chess_env.py)
+    num_planes:     int = 19    # input feature planes (see chess_env.py)
     num_res_blocks: int = 6     # depth of residual tower
     channels:       int = 64    # conv channel width
 
