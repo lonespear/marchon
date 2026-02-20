@@ -31,7 +31,7 @@ class ArchonConfig:
     dirichlet_alpha:   float = 0.3   # noise concentration at root
     dirichlet_epsilon: float = 0.25  # fraction of noise mixed into root priors
     temperature:       float = 1.0   # move diversity in early game
-    temp_threshold:    int   = 20    # plies before switching to greedy selection
+    temp_threshold:    int   = 60    # plies before switching to greedy selection
 
     # ── Self-play ──────────────────────────────────────────────────────────────
     # Reference (full strength): games_per_iteration=10, max_game_length=300
