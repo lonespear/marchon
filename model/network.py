@@ -3,7 +3,7 @@ network.py — Dual-headed neural network for Archon.
 
 Architecture (simplified AlphaZero):
 
-  Input (batch, 18, 8, 8)
+  Input (batch, 19, 8, 8)
     │
     ▼
   Input convolution  [conv 3×3 → BN → ReLU]
@@ -62,7 +62,7 @@ class ArchonNet(nn.Module):
 
     Parameters
     ----------
-    num_planes    : number of input feature planes (18 in our encoding)
+    num_planes    : number of input feature planes (19 in our encoding)
     num_res_blocks: depth of the residual tower
     channels      : width of every conv layer in the tower
     """
@@ -71,7 +71,7 @@ class ArchonNet(nn.Module):
 
     def __init__(
         self,
-        num_planes:     int = 18,
+        num_planes:     int = 19,
         num_res_blocks: int = 6,
         channels:       int = 64,
     ):
@@ -147,7 +147,7 @@ class ArchonNet(nn.Module):
 
         Parameters
         ----------
-        state             : (18, 8, 8) float32 array from ChessEnv.encode_state()
+        state             : (19, 8, 8) float32 array from ChessEnv.encode_state()
         legal_action_mask : bool array of shape (ACTION_SIZE,); True = legal
         device            : torch device string
 

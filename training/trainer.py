@@ -23,6 +23,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Optional
 
+import chess
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -83,7 +84,10 @@ class Trainer:
         """
         prev_network = None   # used for ELO evaluation
 
-        for it in range(1, num_iterations + 1):
+        start = self.iteration + 1
+        end   = start + num_iterations
+
+        for it in range(start, end):
             if stop_event and stop_event.is_set():
                 self.log.info("Stop signal received - exiting training loop.")
                 break
@@ -92,7 +96,7 @@ class Trainer:
             if self.shared:
                 self.shared.update_iteration(it, len(self.replay_buffer))
             self.log.info("-" * 50)
-            self.log.info(f"Iteration {it}/{num_iterations}   "
+            self.log.info(f"Iteration {it}   "
                           f"buffer={len(self.replay_buffer)}")
 
             # 1. Self-play
@@ -222,7 +226,7 @@ class Trainer:
             ply = 0
 
             while not env.done and ply < self.config.max_game_length:
-                mcts = white_mcts if env.board.turn == __import__("chess").WHITE else black_mcts
+                mcts = white_mcts if env.board.turn == chess.WHITE else black_mcts
                 move = mcts.select_move(env.board, temperature=0.0, add_noise=False)
                 if move is None:
                     break
@@ -268,9 +272,18 @@ class Trainer:
         ckpt = torch.load(path, map_location=self.config.device)
         self.network.load_state_dict(ckpt["model_state"])
         self.optimizer.load_state_dict(ckpt["optimizer_state"])
-        self.iteration     = ckpt.get("iteration", 0)
-        self.policy_losses = ckpt.get("policy_losses", [])
-        self.value_losses  = ckpt.get("value_losses", [])
-        self.elo.rating    = ckpt.get("elo", 1000.0)
-        self.total_games   = ckpt.get("total_games", 0)
-        self.log.info(f"Loaded checkpoint: iteration {self.iteration}")
+        self.iteration        = ckpt.get("iteration", 0)
+        self.policy_losses    = ckpt.get("policy_losses", [])
+        self.value_losses     = ckpt.get("value_losses", [])
+        self.combined_losses  = [p + v for p, v in zip(self.policy_losses, self.value_losses)]
+        self.elo.rating       = ckpt.get("elo", 1000.0)
+        self.total_games      = ckpt.get("total_games", 0)
+
+        # Push restored history into the dashboard immediately
+        if self.shared:
+            self.shared.update_losses(self.policy_losses, self.value_losses, self.combined_losses)
+            self.shared.update_elo(self.elo.rating)
+            self.shared.update_iteration(self.iteration, 0)
+
+        self.log.info(f"Loaded checkpoint: iteration {self.iteration}, "
+                      f"total_games {self.total_games}, elo {self.elo.rating:.0f}")

@@ -7,12 +7,13 @@ Wraps python-chess into an RL-friendly interface:
   - move_to_action()  → integer index into action space
   - render_unicode()  → pretty board string for debugging
 
-Board encoding (18 planes, each 8×8):
+Board encoding (19 planes, each 8×8):
   Planes 0-5:  White pieces  (P, N, B, R, Q, K)
   Planes 6-11: Black pieces  (P, N, B, R, Q, K)
   Plane 12:    Side to move  (1 = White)
   Planes 13-16: Castling rights (WK, WQ, BK, BQ)
   Plane 17:    Halfmove clock (normalized 0-1 for 50-move rule)
+  Plane 18:    Repetition count (normalized: times this position has occurred / 3)
 """
 
 import chess
@@ -23,7 +24,7 @@ from typing import List, Optional, Tuple
 class ChessEnv:
     """RL wrapper around a python-chess Board."""
 
-    NUM_PLANES   = 18
+    NUM_PLANES   = 19
     ACTION_SIZE  = 4100   # 64×64 from/to squares + 4 under-promotions
 
     _PIECE_TO_PLANE = {
@@ -70,7 +71,7 @@ class ChessEnv:
         self.move_history.append(move)
 
         reward = 0.0
-        if self.board.is_game_over():
+        if self.board.is_game_over(claim_draw=True):
             self.done = True
             outcome = self.board.outcome()
             if outcome.winner is None:
@@ -105,7 +106,9 @@ class ChessEnv:
         planes[14] = float(self.board.has_queenside_castling_rights(chess.WHITE))
         planes[15] = float(self.board.has_kingside_castling_rights(chess.BLACK))
         planes[16] = float(self.board.has_queenside_castling_rights(chess.BLACK))
-        planes[17] = self.board.halfmove_clock / 100.0
+        planes[17] = min(self.board.halfmove_clock / 50.0, 1.0)   # 0→1 over 50-move rule
+        # Repetition: 0.0 = first time, 0.5 = seen once before, 1.0 = second repetition (draw)
+        planes[18] = (int(self.board.is_repetition(2)) + int(self.board.is_repetition(3))) / 2.0
 
         return planes
 
