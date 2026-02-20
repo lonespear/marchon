@@ -73,7 +73,7 @@ class ChessEnv:
         reward = 0.0
         if self.board.is_game_over(claim_draw=True):
             self.done = True
-            outcome = self.board.outcome()
+            outcome = self.board.outcome(claim_draw=True)
             if outcome.winner is None:
                 reward      = 0.0
                 self.result = "draw"
