@@ -209,13 +209,13 @@ Chess is a finite, episodic, two-player zero-sum game. Cast in the RL framework:
 
 The **Bellman optimality equation** for the state-value function is:
 
-$$V^*(s) = \max_{a} \left[ -V^*\bigl(T(s,a)\bigr) \right]$$
+$$V^{*}(s) = \max_{a} \left[ -V^{*}\bigl(T(s,a)\bigr) \right]$$
 
 The negation reflects the zero-sum perspective flip: what is good for the player who
 just moved is bad for the player who must move next. At terminal states,
-$V^*(s_T) = z \in \{+1, -1, 0\}$.
+$V^{*}(s_T) = z \in \{+1, -1, 0\}$.
 
-ArchonNet's value head approximates $V^*$ directly: $v_\theta(s) \approx V^*(s)$.
+ArchonNet's value head approximates $V^{*}$ directly: $v_\theta(s) \approx V^*(s)$.
 MCTS implements **one step of policy improvement** by computing a look-ahead estimate
 that is closer to the Bellman fixed point than $v_\theta$ alone.
 
@@ -239,7 +239,7 @@ reasoning — so it needs *less* search to reach the same quality next time.
 $$\mathcal{L}_{\text{value}} = \bigl(z - v_\theta(s)\bigr)^2$$
 
 This trains the value head to predict the actual game outcome from each position,
-which is the Monte Carlo estimate of $V^*(s)$ under the current policy.
+which is the Monte Carlo estimate of $V^{*}(s)$ under the current policy.
 
 **Gradient update** (Adam optimiser, weight decay $10^{-4}$, gradient clipping at 1.0):
 
