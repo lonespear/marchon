@@ -304,6 +304,104 @@ approximation.
 
 ---
 
+## How the Network Actually Learns
+
+The math above describes what *should* happen. This section describes what you
+*actually observe* in the logs, and what each signal means during a real training run.
+
+### Reading the Logs
+
+Each iteration prints three numbers worth watching:
+
+```
+Self-play: 2W / 6D / 0L   total games=256
+Loss - policy: 2.7769     value: 0.0291
+```
+
+**Decisive game rate** (`W` + `L` out of 8) is the most direct health signal.
+It measures whether MCTS is generating games with meaningful outcomes for the
+network to learn from. A rate of 1–3 decisive games per iteration (~15–35%) is
+healthy. Zero decisive games every iteration is the warning sign of a draw collapse
+(see `TRAINING_NOTES.md`).
+
+**Value loss** should be non-zero and stable. If it collapses to exactly `0.0000`
+and stays there, the value head has found the trivial minimum of outputting a
+constant, meaning MCTS is flying blind — it has no signal about which positions
+are better or worse. When value loss is healthy (e.g. `0.03–0.06`), it oscillates
+rather than monotonically decreasing, because every new batch of self-play games
+shifts the target distribution.
+
+**Policy loss** starts very high (4+ from a random network) and decreases as the
+network learns to predict which moves MCTS will favour. It tends to plateau for
+long stretches before finding a new downward slope — this is normal. The policy
+target $\pi$ is itself noisy (it includes Dirichlet noise during self-play), so the
+gradient signal is inherently noisier than supervised learning.
+
+### The Phases of Learning
+
+Training from scratch passes through roughly three phases. The boundaries are
+approximate and depend on hardware and hyperparameters.
+
+**Phase 1 — Random exploration (iter 1–~50)**
+
+The network knows nothing. Policy priors are nearly uniform, so MCTS explores
+almost randomly. Games are decided by whoever stumbles into a checkmate or
+blunder first. Value loss is high and volatile. Policy loss falls steeply from
+its initial value (~4+) as the network learns the most basic structure: that some
+moves are legal and some squares matter.
+
+What you see in self-play: erratic results, mix of wins/losses/draws. Games may
+be short (tactical blunders) or hit the move cap (neither side can finish).
+
+**Phase 2 — Pattern recognition (~iter 50–200)**
+
+The network begins internalising basic chess knowledge purely from outcome signals —
+that keeping more pieces tends to lead to winning, that king safety matters, that
+connected pawns are useful. It did not receive any of this explicitly; it emerges
+from the statistics of which positions correlate with +1 and −1 outcomes.
+
+Policy loss plateaus and moves slowly. Value loss stabilises at a non-zero floor.
+ELO will still appear flat at this stage because the **evaluation games run without
+noise and temperature=0** (fully greedy, deterministic play). Both the new and old
+network find the same solid drawing lines in greedy play even if one has genuinely
+better positional understanding. The self-play decisive game rate is a more honest
+signal of improvement than ELO at this stage.
+
+**Phase 3 — Positional strength (~iter 200+)**
+
+The policy has converged enough that MCTS consistently finds better plans than
+random stumbling. The value head accurately scores positions. Greedy play starts
+producing decisive games even without noise, which is when ELO finally begins to
+move. Policy loss resumes a downward trend as the network approaches the quality
+of its own MCTS oracle.
+
+### Why ELO Lags Behind
+
+ELO is measured by pitting the current network against the previous checkpoint in
+**noise-free, greedy games** — both sides always play their single highest-visited
+move. This is deliberately conservative: it measures whether the network is
+genuinely stronger, not just more exploratory.
+
+The consequence is that ELO is a **lagging indicator**. A network can be learning
+meaningfully for 100+ iterations while ELO shows no change, because both versions
+still find the same drawing sequences under deterministic play. When ELO does start
+moving, the improvement is real and durable.
+
+The self-play decisive game rate is the **leading indicator** — it tells you whether
+the training data is rich enough to drive learning, regardless of whether that
+learning has yet translated into measurable strength.
+
+### What Healthy Training Looks Like
+
+| Signal | Healthy | Warning |
+|--------|---------|---------|
+| Value loss | 0.02–0.08, oscillating | Collapses to 0.0000 and stays |
+| Policy loss | Decreasing (even slowly) | Flat for 100+ iters with no change |
+| Decisive game rate | 1–4 per iteration (~15–50%) | 0 every iteration |
+| ELO | Flat early, then rising | Irrelevant signal before ~iter 200 |
+
+---
+
 ## The Full Training Loop
 
 ```
