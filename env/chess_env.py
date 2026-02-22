@@ -71,9 +71,9 @@ class ChessEnv:
         self.move_history.append(move)
 
         reward = 0.0
-        if self.board.is_game_over(claim_draw=True):
+        if self.board.is_game_over(claim_draw=False):
             self.done = True
-            outcome = self.board.outcome(claim_draw=True)
+            outcome = self.board.outcome(claim_draw=False)
             if outcome.winner is None:
                 reward      = 0.0
                 self.result = "draw"

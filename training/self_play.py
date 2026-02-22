@@ -158,7 +158,7 @@ def _assign_values(
     for i, (state, policy) in enumerate(positions):
         player_is_white = (i % 2 == 0)
         if result == "draw":
-            value = -0.1
+            value = -0.3
         elif result == "white":
             value = 1.0 if player_is_white else -1.0
         else:   # black wins

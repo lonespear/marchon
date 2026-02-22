@@ -122,7 +122,7 @@ class MCTS:
                 sim_board.push(node.move)
 
             # 2+3. EXPAND & EVALUATE  (or score terminal node)
-            if sim_board.is_game_over():
+            if sim_board.is_game_over(claim_draw=False):
                 outcome = sim_board.outcome()
                 if outcome.winner is None:
                     value = 0.0
