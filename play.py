@@ -29,6 +29,7 @@ network: ArchonNet | None = None
 mcts_agent: MCTS | None = None
 ckpt_meta: dict = {"iteration": 0, "elo": 0, "total_games": 0}
 _move_lock = threading.Lock()
+_cached_value: float = 0.0   # last eval; updated after each move, not on every poll
 
 
 # ── Checkpoint loading ───────────────────────────────────────────────────────
@@ -139,7 +140,7 @@ def _get_status_message() -> str:
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 def create_play_app() -> Flask:
-    app = Flask(__name__, template_folder="ui/templates")
+    app = Flask(__name__, template_folder="ui/templates", static_folder="ui/static")
 
     @app.route("/")
     def index():
@@ -156,7 +157,7 @@ def create_play_app() -> Flask:
                 "fen": board.fen(),
                 "moves": move_history,
                 "status": _get_status_message(),
-                "value": _get_value_estimate(),
+                "value": _cached_value,   # no NN call on poll — instant response
                 "game_over": game_over,
                 "result": result_str,
                 "iteration": ckpt_meta["iteration"],
@@ -174,6 +175,7 @@ def create_play_app() -> Flask:
             return jsonify({"error": "AI is already thinking"}), 429
 
         try:
+            global _cached_value
             if game_over:
                 return jsonify({"error": "Game is already over"}), 400
 
@@ -216,7 +218,7 @@ def create_play_app() -> Flask:
                     move_history.append(ai_move_san)
                     game_over, result_str = _detect_game_over()
 
-            value = _get_value_estimate()
+            _cached_value = _get_value_estimate()
 
             return jsonify(
                 {
@@ -224,7 +226,7 @@ def create_play_app() -> Flask:
                     "ai_move": ai_move_uci,
                     "ai_move_san": ai_move_san,
                     "status": _get_status_message(),
-                    "value": value,
+                    "value": _cached_value,
                     "game_over": game_over,
                     "result": result_str,
                     "moves": move_history,
@@ -236,11 +238,12 @@ def create_play_app() -> Flask:
 
     @app.route("/api/reset", methods=["POST"])
     def api_reset():
-        global board, move_history, game_over, result_str
+        global board, move_history, game_over, result_str, _cached_value
         board = chess.Board()
         move_history = []
         game_over = False
         result_str = ""
+        _cached_value = 0.0
         return jsonify({"fen": board.fen()})
 
     return app

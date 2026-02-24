@@ -222,12 +222,12 @@ $$\mathcal{D}_{\text{game}} = \{(s_t,\, \pi_t,\, z_t)\}_{t=0}^{T}$$
 - $s_t$ — board state tensor at ply $t$
 - $\pi_t$ — MCTS visit-count policy at ply $t$
 - $z_t$ — game outcome **from the perspective of the player to move at ply $t$**:
-  $+1$ (that side won), $-1$ (that side lost), $-0.1$ (draw)
+  $+1$ (that side won), $-1$ (that side lost), $-0.3$ (draw)
 
-The draw value of $-0.1$ rather than $0$ is a deliberate design choice. With draws
+The draw value of $-0.3$ rather than $0$ is a deliberate design choice. With draws
 scored as $0$, the value head finds a trivial minimum by outputting a constant near
 zero, which gives near-zero MSE loss on a draw-saturated buffer and stops learning.
-Scoring draws as $-0.1$ means both sides have a weak incentive to play for a win,
+Scoring draws as $-0.3$ means both sides have a weak incentive to play for a win,
 and the value head always has a non-zero target to train against. The reward signal
 remains purely outcome-based — no board evaluation or heuristics are involved.
 
@@ -438,7 +438,7 @@ At ~45 seconds per iteration on a single GPU, 2 000 iterations ≈ 25 hours of t
 | `num_simulations` | 25 | MCTS simulations per move |
 | `c_puct` | 1.4 | Exploration constant |
 | `dirichlet_alpha` | 0.3 | Noise concentration (matches chess branching factor) |
-| `dirichlet_epsilon` | 0.50 | Noise fraction at root |
+| `dirichlet_epsilon` | 0.25 | Noise fraction at root |
 | `temperature` | 1.0 | Move diversity (early game) |
 | `temp_threshold` | 120 | Plies before switching to greedy |
 | `games_per_iteration` | 8 | Self-play games per cycle |
@@ -474,9 +474,15 @@ archon/
 ├── ui/
 │   ├── dashboard.py         SharedState (thread-safe producer/consumer)
 │   ├── web_app.py           Flask app + SSE endpoint
-│   └── templates/
-│       ├── index.html       Live training dashboard
-│       └── play.html        Play-vs-AI browser UI
+│   ├── templates/
+│   │   ├── index.html       Live training dashboard
+│   │   └── play.html        Play-vs-AI browser UI
+│   └── static/              Locally-served JS/CSS/piece images (no CDN required)
+│       ├── jquery-3.7.1.min.js
+│       ├── chess.min.js
+│       ├── chessboard-1.0.0.min.js
+│       ├── chessboard-1.0.0.min.css
+│       └── img/chesspieces/wikipedia/
 ├── checkpoints/             Saved model weights (.pt)
 └── games/                   PGN files for every self-play game
 ```

@@ -6,9 +6,7 @@
   <title>Archon — Play vs AI</title>
 
   <!-- chessboard.js 1.0.0 -->
-  <link rel="stylesheet"
-        href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
-        crossorigin="anonymous" />
+  <link rel="stylesheet" href="/static/chessboard-1.0.0.min.css" />
 
   <style>
     /* ── Reset & base ───────────────────────────────────────────────────── */
@@ -260,17 +258,13 @@
 
   <!-- ── Scripts ─────────────────────────────────────────────────────────── -->
   <!-- jQuery (required by chessboard.js) -->
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"
-          integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
-          crossorigin="anonymous"></script>
+  <script src="/static/jquery-3.7.1.min.js"></script>
 
   <!-- chess.js for move validation -->
-  <script src="https://cdn.jsdelivr.net/npm/chess.js@0.13.4/chess.min.js"
-          crossorigin="anonymous"></script>
+  <script src="/static/chess.min.js"></script>
 
   <!-- chessboard.js -->
-  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"
-          crossorigin="anonymous"></script>
+  <script src="/static/chessboard-1.0.0.min.js"></script>
 
   <script>
     // ── State ──────────────────────────────────────────────────────────────
@@ -444,15 +438,15 @@
         return 'snapback';
       }
 
-      // Undo chess.js move (server is the authority) — keep visual
-      game.undo();
+      // Keep chess.js move applied so piece stays in place while AI thinks.
+      // sendMove will load the authoritative FEN once the AI responds.
 
       sendMove(uci);
     }
 
     function onSnapEnd() {
-      // Sync board visuals with chess.js state after animation
-      board.position(game.fen());
+      // Do nothing — piece stays where dropped.
+      // board.position() is called by sendMove once the AI responds.
     }
 
     // ── Board initialisation ───────────────────────────────────────────────
@@ -460,7 +454,7 @@
       var cfg = {
         draggable: true,
         position: fen || 'start',
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+        pieceTheme: '/static/img/chesspieces/wikipedia/{piece}.png',
         onDragStart: onDragStart,
         onDrop: onDrop,
         onSnapEnd: onSnapEnd,

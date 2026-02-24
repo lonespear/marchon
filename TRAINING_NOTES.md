@@ -127,15 +127,88 @@ could interfere.
 
 ---
 
+## Fix Attempt 4 — Policy plateau from excess noise (Feb 2026)
+
+**Problem:** After Fix 3, policy loss went completely flat at ~2.82 for 90+
+iterations. With `dirichlet_epsilon = 0.50`, half of every policy target was
+random Dirichlet noise. The network couldn't learn to predict visit counts
+that were 50% random — the gradient signal was too noisy.
+
+### Changes
+| File | Setting | Before | After |
+|---|---|---|---|
+| `config.py` | `dirichlet_epsilon` | 0.50 | 0.25 |
+
+The draw vortex was now structurally fixed by `draw = -0.1` rather than by
+noise, so epsilon could safely return to the standard AlphaZero value.
+
+Restarted from **checkpoint iter 100** of the fresh run.
+
+### Result
+Policy loss resumed declining: 2.82 → 1.38 over ~1800 iterations.
+Value loss stable at 0.02–0.05. But a new problem emerged (see below).
+
+---
+
+## Fix Attempt 5 — Repetition exploit (Feb 2026)
+
+**Problem:** By iter ~1800 the model had learned a degenerate strategy:
+shuffle a piece A→B→A→B→A to trigger threefold repetition in ~8 moves.
+With `claim_draw=True`, any repeated position instantly terminated as a draw.
+Draw = -0.1 was better than risking a -1 loss, so the model preferred
+near-instant draws over playing chess.
+
+**Signatures:** iteration time dropped from 3–5 min to 30–60 sec; games were
+5–10 moves; decisive game rate near 0%; policy loss improved but ELO never moved.
+
+### Changes
+| File | Setting | Before | After |
+|---|---|---|---|
+| `env/chess_env.py` | `claim_draw` in `is_game_over()` + `outcome()` | `True` | `False` |
+| `mcts/mcts.py` | `claim_draw` in terminal check | `True` | `False` |
+| `training/self_play.py` | draw value target | `-0.1` | `-0.3` |
+
+With `claim_draw=False`, threefold repetition is still legal but must be
+*claimed* by a player — the engine never auto-terminates on it. The stronger
+draw penalty (-0.3) makes repetition-fishing a less attractive strategy.
+
+Restarted from **checkpoint iter 1925** (which had policy loss 1.38 already
+learned, but repetition-biased behaviour).
+
+### Result
+Iteration speed returned to 3–5 min immediately (games became real chess again).
+Fresh run restarted from **iter 1** with all fixes in place.
+
+---
+
 ## Summary of all config changes from defaults
 
 | Setting | Original | Current | Reason |
 |---|---|---|---|
 | `num_simulations` | 100 | 25 | Less deterministic search; faster iteration |
 | `temp_threshold` | 60 | 120 | Keeps stochastic sampling for more of the game |
-| `dirichlet_epsilon` | 0.25 | 0.50 | Noise dominates priors during early training |
-| draw value target | 0.0 | -0.1 | Breaks zero attractor in value head |
+| `dirichlet_epsilon` | 0.25 | 0.25 | Raised to 0.50 to break draw vortex, then back to standard |
+| draw value target | 0.0 | -0.3 | Breaks zero attractor; raised from -0.1 to close repetition exploit |
 | noise window | `ply < 4` | `ply < temp_threshold` | Noise active throughout exploratory phase |
+| `claim_draw` | `True` | `False` | Closes threefold-repetition exploit |
+
+---
+
+## Current training run (started Feb 22, 2026 — all fixes applied)
+
+Fresh start from iter 1 with the full set of fixes. Key milestones:
+
+| Iteration | Event |
+|---|---|
+| ~65 | ELO first moves: 1000 → 1008 |
+| ~90 | ELO hits 1016, drops back at ~95 (oscillation) |
+| ~390 | ELO holds at 1016 for first time — Phase 3 entry |
+| ~495 | ELO hits 1024 |
+| ~500 | ELO drops back to 1016 (floor raised from 1008 to 1016) |
+| ~575 | Current state: ELO 1016, policy loss ~1.52 |
+
+Policy loss trajectory: 4.78 (iter 1) → ~1.52 (iter 575).
+ELO floor rising over time confirms genuine strength accumulation.
 
 ---
 
@@ -149,8 +222,34 @@ training dashboard on port 5000.
 
 Usage:
 ```bash
-python play.py --checkpoint checkpoints/archon_iter_0100.pt --sims 20
+python play.py --checkpoint checkpoints/archon_iter_0575.pt --sims 20
+# Open http://localhost:5001
 ```
+
+### play.py — static file serving (Feb 23, 2026)
+Original play.html loaded jQuery, chess.js, and chessboard.js from CDN.
+On networks that block unpkg/jsdelivr the board wouldn't render at all.
+Fixed by downloading all JS/CSS/piece-image assets to `ui/static/` and
+serving them locally via Flask's static folder. No internet connection
+required to run the UI.
+
+### play.py — eval bar non-blocking (Feb 23, 2026)
+`/api/state` originally called `_get_value_estimate()` (a NN forward pass)
+on every page load, blocking the board from rendering until inference
+completed. Fixed by caching the last computed value and only updating it
+after moves — `/api/state` now returns instantly.
+
+### play.py — piece stays during AI thinking (Feb 23, 2026)
+After dropping a piece the board would snap it back, then animate both the
+human and AI moves together once the AI responded. Fixed by keeping the
+chess.js move applied (not undoing it) in `onDrop`, and making `onSnapEnd`
+a no-op. The board now updates once to the final FEN after the AI responds.
+
+### play.py — chess.js version fix (Feb 23, 2026)
+`chess.js@0.13.4` from jsdelivr is an ES module and throws
+`Uncaught SyntaxError: Unexpected token 'export'` in a plain browser script
+context. Replaced with `chess.js@0.10.2` which exports a global `Chess`
+constructor compatible with chessboard.js 1.0.0.
 
 ### play.py bug fix
 The trainer saves weights under key `"model_state"` but the initial
