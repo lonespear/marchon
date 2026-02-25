@@ -19,6 +19,7 @@ thread can safely read them at any time.
 
 import logging
 import threading
+from collections import deque
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional
@@ -68,6 +69,7 @@ class Trainer:
         self.policy_losses:   list = []
         self.value_losses:    list = []
         self.combined_losses: list = []
+        self._decisive_window: deque = deque(maxlen=50)  # decisive games per iter
 
         self.log.info(
             f"ArchonNet ready - {self.network.count_parameters():,} parameters "
@@ -141,9 +143,15 @@ class Trainer:
             if self.shared:
                 self.shared.push_game(record)
 
+        self._decisive_window.append(wins + losses)
+        decisive_games = sum(self._decisive_window)
+        total_in_window = len(self._decisive_window) * self.config.games_per_iteration
+        decisive_pct = decisive_games / total_in_window * 100 if total_in_window else 0.0
+
         self.log.info(
             f"  Self-play: {wins}W / {draws}D / {losses}L   "
-            f"total games={self.total_games}"
+            f"total games={self.total_games}   "
+            f"decisive(last {len(self._decisive_window)}): {decisive_pct:.1f}%"
         )
         if self.shared:
             self.shared.update_stats(wins, draws, losses)

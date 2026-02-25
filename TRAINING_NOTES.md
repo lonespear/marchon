@@ -187,7 +187,7 @@ Fresh run restarted from **iter 1** with all fixes in place.
 |---|---|---|---|
 | `num_simulations` | 100 | 25 | Less deterministic search; faster iteration |
 | `temp_threshold` | 60 | 120 | Keeps stochastic sampling for more of the game |
-| `dirichlet_epsilon` | 0.25 | 0.25 | Raised to 0.50 to break draw vortex, then back to standard |
+| `dirichlet_epsilon` | 0.25 | 0.50 | Raised to break soft draw drift at iter ~1356; revert to 0.25 after ~50–100 iters |
 | draw value target | 0.0 | -0.3 | Breaks zero attractor; raised from -0.1 to close repetition exploit |
 | noise window | `ply < 4` | `ply < temp_threshold` | Noise active throughout exploratory phase |
 | `claim_draw` | `True` | `False` | Closes threefold-repetition exploit |
@@ -202,13 +202,43 @@ Fresh start from iter 1 with the full set of fixes. Key milestones:
 |---|---|
 | ~65 | ELO first moves: 1000 → 1008 |
 | ~90 | ELO hits 1016, drops back at ~95 (oscillation) |
-| ~390 | ELO holds at 1016 for first time — Phase 3 entry |
-| ~495 | ELO hits 1024 |
-| ~500 | ELO drops back to 1016 (floor raised from 1008 to 1016) |
-| ~575 | Current state: ELO 1016, policy loss ~1.52 |
+| ~390 | ELO holds at 1016 for first time |
+| ~495 | ELO hits 1024 (high watermark) |
+| ~500 | ELO drops back to 1016 |
+| ~575 | ELO 1016, policy loss ~1.52 |
+| ~650 | ELO regresses to 1008 and stalls |
+| ~1356 | ELO still 1008, policy loss ~1.41 — soft draw drift (see below) |
 
-Policy loss trajectory: 4.78 (iter 1) → ~1.52 (iter 575).
-ELO floor rising over time confirms genuine strength accumulation.
+Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356).
+
+---
+
+## Soft Draw Drift (Feb 25, 2026, iter ~650–1356)
+
+### Symptoms
+- Self-play decisive rate fell to ~4% (15W / 384D / 1L over 50 iterations)
+- ELO stuck at 1008 for 700+ iterations; eval almost always `0W/10D/0L`
+- Policy loss continued declining (good) but ELO did not follow
+- Value loss healthy (0.007–0.015), not approaching zero attractor
+
+### Root Cause
+The model converged to solid, drawish play. Policy head improved at predicting
+MCTS visit counts, but all MCTS visits occur in draw territory — the policy is
+getting better at drawing, not winning. The value head has signal (draw=-0.3)
+but not enough decisive-game experience to push ELO higher.
+
+This is a mild version of the Draw Vortex: structurally stable but stuck in a
+local equilibrium. The ELO evaluation is also blind here since both sides play
+identically at temperature=0 with no noise.
+
+### Fix applied (iter ~1356)
+| File | Setting | Before | After |
+|---|---|---|---|
+| `config.py` | `dirichlet_epsilon` | 0.25 | 0.50 |
+| `training/trainer.py` | decisive-rate logging | — | added (rolling 50-iter window) |
+
+**Revert epsilon to 0.25 after ~50–100 iterations** once decisive rate recovers
+above ~15%. Do not restart unless value loss hits 0.0000.
 
 ---
 
