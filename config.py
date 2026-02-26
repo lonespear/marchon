@@ -29,9 +29,7 @@ class ArchonConfig:
     num_simulations:   int   = 25    # simulations per move (higher = stronger)
     c_puct:            float = 1.4   # exploration vs exploitation balance
     dirichlet_alpha:   float = 0.3   # noise concentration at root
-    dirichlet_epsilon: float = 0.50  # fraction of noise mixed into root priors
-    # NOTE: temporarily raised 0.25→0.50 at iter ~1356 to break draw drift.
-    # Revert to 0.25 after ~50-100 iterations once decisive rate improves.
+    dirichlet_epsilon: float = 0.25  # fraction of noise mixed into root priors
     temperature:       float = 1.0   # move diversity in early game
     temp_threshold:    int   = 120   # plies before switching to greedy selection
 

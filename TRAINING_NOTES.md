@@ -187,7 +187,7 @@ Fresh run restarted from **iter 1** with all fixes in place.
 |---|---|---|---|
 | `num_simulations` | 100 | 25 | Less deterministic search; faster iteration |
 | `temp_threshold` | 60 | 120 | Keeps stochastic sampling for more of the game |
-| `dirichlet_epsilon` | 0.25 | 0.50 | Raised to break soft draw drift at iter ~1356; revert to 0.25 after ~50–100 iters |
+| `dirichlet_epsilon` | 0.25 | 0.25 | Raised to 0.50 at iter ~1356 to break draw drift, reverted at iter ~1546 |
 | draw value target | 0.0 | -0.3 | Breaks zero attractor; raised from -0.1 to close repetition exploit |
 | noise window | `ply < 4` | `ply < temp_threshold` | Noise active throughout exploratory phase |
 | `claim_draw` | `True` | `False` | Closes threefold-repetition exploit |
@@ -208,8 +208,11 @@ Fresh start from iter 1 with the full set of fixes. Key milestones:
 | ~575 | ELO 1016, policy loss ~1.52 |
 | ~650 | ELO regresses to 1008 and stalls |
 | ~1356 | ELO still 1008, policy loss ~1.41 — soft draw drift (see below) |
+| ~1426 | epsilon raised 0.25→0.50; decisive rate climbs from 4% to 15%+ |
+| ~1490 | ELO drops to 992 — policy noise side effect |
+| ~1525 | ELO drops to 984; decisive rate holding 15-16%; epsilon reverted 0.50→0.25 |
 
-Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356).
+Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356) → ~2.15 (iter 1546, noise phase).
 
 ---
 
@@ -237,8 +240,14 @@ identically at temperature=0 with no noise.
 | `config.py` | `dirichlet_epsilon` | 0.25 | 0.50 |
 | `training/trainer.py` | decisive-rate logging | — | added (rolling 50-iter window) |
 
-**Revert epsilon to 0.25 after ~50–100 iterations** once decisive rate recovers
-above ~15%. Do not restart unless value loss hits 0.0000.
+**Reverted epsilon to 0.25 at iter ~1546** (120 iters post-raise). Decisive rate
+reached 15–16% as planned but ELO dropped 984 (from 1008) — policy targets were
+50% noise so the network adapted to noise-corrupted distributions. Policy loss
+rose 1.38 → 2.15 confirming degradation. Buffer is now seeded with decisive games;
+reverting to 0.25 lets the network consolidate those patterns cleanly.
+
+Expected after revert: policy loss falls back toward ~1.4, ELO recovers and
+hopefully breaks above 1008 high watermark as the decisive-game patterns solidify.
 
 ---
 
