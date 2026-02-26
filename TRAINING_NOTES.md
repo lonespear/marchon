@@ -185,7 +185,7 @@ Fresh run restarted from **iter 1** with all fixes in place.
 
 | Setting | Original | Current | Reason |
 |---|---|---|---|
-| `num_simulations` | 100 | 25 | Less deterministic search; faster iteration |
+| `num_simulations` | 100 | 50 | Raised 25→50 at iter ~1756 to generate organically decisive games |
 | `temp_threshold` | 60 | 120 | Keeps stochastic sampling for more of the game |
 | `dirichlet_epsilon` | 0.25 | 0.25 | Raised to 0.50 at iter ~1356 to break draw drift, reverted at iter ~1546 |
 | draw value target | 0.0 | -0.3 | Breaks zero attractor; raised from -0.1 to close repetition exploit |
@@ -211,8 +211,10 @@ Fresh start from iter 1 with the full set of fixes. Key milestones:
 | ~1426 | epsilon raised 0.25→0.50; decisive rate climbs from 4% to 15%+ |
 | ~1490 | ELO drops to 992 — policy noise side effect |
 | ~1525 | ELO drops to 984; decisive rate holding 15-16%; epsilon reverted 0.50→0.25 |
+| ~1756 | Decisive rate reverted to ~4%, ELO 992 — noise failed (see below) |
+| ~1756 | **Restart from iter 1425.pt**: sims 25→50, games/iter 8→10 |
 
-Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356) → ~2.15 (iter 1546, noise phase).
+Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356) → ~2.15 (iter 1546, noise phase) → ~1.34 (iter 1756).
 
 ---
 
@@ -243,11 +245,40 @@ identically at temperature=0 with no noise.
 **Reverted epsilon to 0.25 at iter ~1546** (120 iters post-raise). Decisive rate
 reached 15–16% as planned but ELO dropped 984 (from 1008) — policy targets were
 50% noise so the network adapted to noise-corrupted distributions. Policy loss
-rose 1.38 → 2.15 confirming degradation. Buffer is now seeded with decisive games;
-reverting to 0.25 lets the network consolidate those patterns cleanly.
+rose 1.38 → 2.15 confirming degradation.
 
-Expected after revert: policy loss falls back toward ~1.4, ELO recovers and
-hopefully breaks above 1008 high watermark as the decisive-game patterns solidify.
+**Noise fix failed.** After revert, decisive rate returned cleanly to ~4% by iter
+~1700 and ELO settled at 992. The buffer seeding did not stick — the decisive
+games during the noise phase were noise-driven blunders, not learned patterns.
+The network weights never internalized decisive play.
+
+---
+
+## Epsilon Noise as Draw-Drift Fix: Post-Mortem
+
+### Verdict: Ineffective at 25 simulations
+
+With only 25 sims, MCTS produces a shallow tree. Decisive games generated under
+high epsilon were largely random tactical blunders from noise overriding the
+policy, not genuine tactical sequences the network could learn from. The model
+could not distinguish "I won because noise forced a blunder" from "I won because
+I found a forced win." Once noise was removed, the confident draw-biased policy
+reasserted immediately.
+
+Lesson: epsilon bumps can only work if the base MCTS is already generating
+meaningful decisive games that the network can learn from. At 25 sims they
+cannot — the tree isn't deep enough to find real forcing lines.
+
+### Structural fix: increase num_simulations 25 → 50
+
+Deeper search generates decisive games organically — no policy corruption,
+no noise-driven blunders. The model can actually learn the decisive patterns
+because they arise from genuine tactical depth rather than forced randomness.
+
+games_per_iteration also raised 8 → 10 to partially offset the slower iteration
+speed (~4 min vs ~2 min per iter).
+
+Restarting from **archon_iter_1425.pt** (pre-noise, ELO 1008, clean weights).
 
 ---
 

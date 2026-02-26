@@ -26,7 +26,7 @@ class ArchonConfig:
 
     # ── MCTS ───────────────────────────────────────────────────────────────────
     # Reference (full strength): num_simulations=50
-    num_simulations:   int   = 25    # simulations per move (higher = stronger)
+    num_simulations:   int   = 50    # simulations per move (higher = stronger)
     c_puct:            float = 1.4   # exploration vs exploitation balance
     dirichlet_alpha:   float = 0.3   # noise concentration at root
     dirichlet_epsilon: float = 0.25  # fraction of noise mixed into root priors
@@ -35,7 +35,7 @@ class ArchonConfig:
 
     # ── Self-play ──────────────────────────────────────────────────────────────
     # Reference (full strength): games_per_iteration=10, max_game_length=300
-    games_per_iteration: int = 8     # self-play games per training cycle
+    games_per_iteration: int = 10    # self-play games per training cycle
     max_game_length:     int = 200   # cap before adjudicating draw
 
     # ── Training ───────────────────────────────────────────────────────────────
