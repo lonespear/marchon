@@ -115,7 +115,7 @@ selector. It builds a search tree from the current position by repeatedly runnin
 four phases:
 
 ```
-for each simulation (×25 per move):
+for each simulation (×50 per move):
   ┌─ SELECT   Walk down the tree, always choosing the child with the
   │           highest PUCT score, until reaching an unexpanded leaf.
   │
@@ -179,22 +179,22 @@ Because MCTS has searched 25 positions ahead before computing $\pi$, this distri
 is a strictly *better* policy than the network's raw output — and that gap is what
 the network learns to close.
 
-### How 25 Simulations Become a Move
+### How 50 Simulations Become a Move
 
-A common point of confusion: the 25 simulations do **not** produce 25 candidate moves.
+A common point of confusion: the 50 simulations do **not** produce 50 candidate moves.
 They produce **visit counts across all legal moves** from the root position.
 
 Each simulation is one traversal of the tree — select a path down, expand a leaf,
 evaluate it with the network, back up the value. The same move can be visited on
-multiple simulations or zero times. After 25 simulations a typical distribution might
+multiple simulations or zero times. After 50 simulations a typical distribution might
 look like:
 
 ```
-e2e4 → visited 9 times    ← most explored
-d2d4 → visited 7 times
-g1f3 → visited 5 times
-c2c4 → visited 2 times
-...  → 0–1 visits each
+e2e4 → visited 18 times    ← most explored
+d2d4 → visited 14 times
+g1f3 → visited 10 times
+c2c4 → visited 4 times
+...  → 0–2 visits each
 ```
 
 The move is then chosen from this distribution (sampled or greedy depending on
@@ -202,7 +202,7 @@ temperature). The network's raw policy output never directly picks a move — it
 sets the **initial priors** $P(s,a)$ that guide which branches get explored first.
 
 The network is called exactly **once per simulation** on the leaf node (plus once at
-root expansion before the loop begins — 26 network calls total). The policy head and
+root expansion before the loop begins — 51 network calls total). The policy head and
 value head serve distinct roles:
 
 - **Policy head → priors $P(s,a)$**: steers simulations toward promising branches early
@@ -222,7 +222,7 @@ $$\mathcal{D}_{\text{game}} = \{(s_t,\, \pi_t,\, z_t)\}_{t=0}^{T}$$
 - $s_t$ — board state tensor at ply $t$
 - $\pi_t$ — MCTS visit-count policy at ply $t$
 - $z_t$ — game outcome **from the perspective of the player to move at ply $t$**:
-  $+1$ (that side won), $-1$ (that side lost), $-0.3$ (draw)
+  $+1$ (that side won), $-1$ (that side lost), $-0.3$ (draw, not 0)
 
 The draw value of $-0.3$ rather than $0$ is a deliberate design choice. With draws
 scored as $0$, the value head finds a trivial minimum by outputting a constant near
@@ -255,7 +255,7 @@ $$V^{\ast}(s) = \max_{a} \left[ -V^{\ast}\bigl(T(s,a)\bigr) \right]$$
 
 The negation reflects the zero-sum perspective flip: what is good for the player who
 just moved is bad for the player who must move next. At terminal states,
-$V^{\ast}(s_T) = z \in \{+1, -1, 0\}$.
+$V^{\ast}(s_T) = z \in \{+1, -1, -0.3\}$ (win, loss, draw).
 
 ArchonNet's value head approximates $V^{\ast}$ directly: $v_\theta(s) \approx V^{\ast}(s)$.
 MCTS implements **one step of policy improvement** by computing a look-ahead estimate
@@ -387,6 +387,13 @@ meaningfully for 100+ iterations while ELO shows no change, because both version
 still find the same drawing sequences under deterministic play. When ELO does start
 moving, the improvement is real and durable.
 
+There is a secondary measurement gap: ELO compares the current checkpoint against
+a snapshot taken only 5 iterations earlier. Two checkpoints 5 iterations apart are
+nearly identical — they will almost always draw each other. Even if the network
+improved significantly over 200 iterations, no single 5-iter comparison captures
+it. ELO should be interpreted as a cumulative signal over many evaluations, not
+a per-eval metric.
+
 The self-play decisive game rate is the **leading indicator** — it tells you whether
 the training data is rich enough to drive learning, regardless of whether that
 learning has yet translated into measurable strength.
@@ -397,8 +404,9 @@ learning has yet translated into measurable strength.
 |--------|---------|---------|
 | Value loss | 0.02–0.08, oscillating | Collapses to 0.0000 and stays |
 | Policy loss | Decreasing (even slowly) | Flat for 100+ iters with no change |
-| Decisive game rate | 1–4 per iteration (~15–50%) | 0 every iteration |
-| ELO | Flat early, then rising | Irrelevant signal before ~iter 200 |
+| Decisive game rate | 1–3 per iteration (~10–30%) at 50 sims | < 5% sustained at 50+ sims |
+| Iteration speed | ~4 min at 50 sims | < 2 min (exploit) or > 8 min (stuck) |
+| ELO | Flat early, then rising | Flat 300+ iters after buffer full |
 
 ---
 
@@ -408,15 +416,15 @@ learning has yet translated into measurable strength.
 for each iteration:
   ┌─────────────────────────────────────────────────────────┐
   │  1. SELF-PLAY                                           │
-  │     Play 8 games using MCTS + current network.          │
-  │     Each move: 25 MCTS simulations → visit-count policy.│
+  │     Play 10 games using MCTS + current network.         │
+  │     Each move: 50 MCTS simulations → visit-count policy.│
   │     Push (state, policy, outcome) triples to buffer.    │
   │                                                         │
   │  2. TRAIN  (once buffer ≥ 500 samples)                  │
   │     Sample 128-example mini-batches × 60 steps.         │
   │     Minimise L_policy + L_value via Adam.               │
   │                                                         │
-  │  3. CHECKPOINT  (every iteration)                       │
+  │  3. CHECKPOINT  (every 25 iterations)                   │
   │     Save model weights + optimizer state to .pt file.   │
   │                                                         │
   │  4. EVALUATE  (every 5 iterations)                      │
@@ -425,7 +433,7 @@ for each iteration:
   └─────────────────────────────────────────────────────────┘
 ```
 
-At ~45 seconds per iteration on a single GPU, 2 000 iterations ≈ 25 hours of training.
+At ~4 minutes per iteration on a single GPU, 2 000 iterations ≈ 5–6 days of training.
 
 ---
 
@@ -435,13 +443,13 @@ At ~45 seconds per iteration on a single GPU, 2 000 iterations ≈ 25 hours of t
 |-----------|-------|-------|
 | `num_res_blocks` | 6 | Residual tower depth |
 | `channels` | 64 | Conv channel width |
-| `num_simulations` | 25 | MCTS simulations per move |
+| `num_simulations` | 50 | MCTS simulations per move |
 | `c_puct` | 1.4 | Exploration constant |
 | `dirichlet_alpha` | 0.3 | Noise concentration (matches chess branching factor) |
 | `dirichlet_epsilon` | 0.25 | Noise fraction at root |
 | `temperature` | 1.0 | Move diversity (early game) |
 | `temp_threshold` | 120 | Plies before switching to greedy |
-| `games_per_iteration` | 8 | Self-play games per cycle |
+| `games_per_iteration` | 10 | Self-play games per cycle |
 | `max_game_length` | 200 | Cap before draw adjudication |
 | `batch_size` | 128 | Mini-batch size |
 | `learning_rate` | 2 × 10⁻³ | Adam LR |
