@@ -115,10 +115,15 @@ class Trainer:
             if it % self.config.checkpoint_every_n_iters == 0:
                 self._save_checkpoint(it)
 
-            # 4. Evaluate against previous checkpoint every N iterations
+            # 4. Evaluate against previous checkpoint every N iterations.
+            # prev_network is only refreshed at checkpoint intervals so that
+            # eval compares against a ~25-iter-old baseline rather than a
+            # 5-iter-old one — giving enough divergence to produce decisive
+            # eval games and meaningful ELO updates.
             if it % self.config.eval_every_n_iters == 0:
                 if prev_network is not None:
                     self._evaluate_against(prev_network)
+            if it % self.config.checkpoint_every_n_iters == 0:
                 prev_network = deepcopy(self.network)
 
     # ── Self-play ─────────────────────────────────────────────────────────────

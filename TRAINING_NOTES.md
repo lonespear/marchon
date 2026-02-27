@@ -213,6 +213,10 @@ Fresh start from iter 1 with the full set of fixes. Key milestones:
 | ~1525 | ELO drops to 984; decisive rate holding 15-16%; epsilon reverted 0.50→0.25 |
 | ~1756 | Decisive rate reverted to ~4%, ELO 992 — noise failed (see below) |
 | ~1756 | **Restart from iter 1425.pt**: sims 25→50, games/iter 8→10 |
+| ~1490 | Buffer full at 50k; decisive rate settled to 6-7% |
+| ~1605 | Decisive rate begins organic climb: 5% → 10% → 13.8% by iter 1785 |
+| ~1785 | Decisive rate plateaus at ~13-14%; policy loss rising 1.10→1.22; value loss rising 0.012→0.035 |
+| ~2000 | Run cap — continuing with eval fix (see below) |
 
 Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356) → ~2.15 (iter 1546, noise phase) → ~1.34 (iter 1756).
 
@@ -279,6 +283,27 @@ games_per_iteration also raised 8 → 10 to partially offset the slower iteratio
 speed (~4 min vs ~2 min per iter).
 
 Restarting from **archon_iter_1425.pt** (pre-noise, ELO 1008, clean weights).
+
+---
+
+## ELO Measurement Gap Fix (Feb 27, 2026)
+
+### Problem
+ELO was frozen at 1008 with `0W/10D/0L` on every eval for 300+ iterations, even
+as the self-play decisive rate climbed from 4% to 13-14%. Root cause: `prev_network`
+was snapshotted every `eval_every_n_iters=5` iterations. Two checkpoints 5 iterations
+apart are nearly identical — they always draw each other at temp=0, no noise. ELO
+never accumulated any signal.
+
+### Fix
+Decouple the `prev_network` refresh from the eval interval. Snapshot is now taken
+only at checkpoint intervals (`checkpoint_every_n_iters=25`). The 5 evals between
+each pair of checkpoints all compare against the same 25-iter-old baseline, giving
+real divergence time. Two networks 25 iterations apart at 13%+ decisive rate have
+a meaningful chance of producing non-draw eval games.
+
+**File changed:** `training/trainer.py` — separated `prev_network = deepcopy(...)`
+from the eval block into the checkpoint block.
 
 ---
 
