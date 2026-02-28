@@ -215,10 +215,13 @@ Fresh start from iter 1 with the full set of fixes. Key milestones:
 | ~1756 | **Restart from iter 1425.pt**: sims 25→50, games/iter 8→10 |
 | ~1490 | Buffer full at 50k; decisive rate settled to 6-7% |
 | ~1605 | Decisive rate begins organic climb: 5% → 10% → 13.8% by iter 1785 |
-| ~1785 | Decisive rate plateaus at ~13-14%; policy loss rising 1.10→1.22; value loss rising 0.012→0.035 |
-| ~2000 | Run cap — continuing with eval fix (see below) |
+| ~1785 | Decisive rate plateaus at ~13-14% for ~94 iters; policy loss 1.10→1.22 |
+| **~1879** | **Organic breakthrough: decisive rate crosses 20% with no config change** |
+| ~1946 | Decisive rate 33%; ELO moves 1008→1016 via 5W/5D/0L eval — first real eval win |
+| ~2000 | Run cap hit; restarted from archon_iter_2000.pt |
+| ~2113 | Decisive rate **43% and still climbing**; ELO 1016; policy loss ~1.60; value loss ~0.07-0.08 |
 
-Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356) → ~2.15 (iter 1546, noise phase) → ~1.34 (iter 1756).
+Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356) → ~2.15 (iter 1546, noise phase) → ~1.34 (iter 1756) → ~1.22 (iter 1830) → ~1.60 (iter 2113, tactical learning phase).
 
 ---
 
@@ -283,6 +286,52 @@ games_per_iteration also raised 8 → 10 to partially offset the slower iteratio
 speed (~4 min vs ~2 min per iter).
 
 Restarting from **archon_iter_1425.pt** (pre-noise, ELO 1008, clean weights).
+
+---
+
+## Organic Decisive Rate Breakthrough (Feb 27–28, 2026)
+
+### What happened
+After ~94 iterations of plateau at 13-14% decisive rate (iter ~1785–1879), the rate
+broke through 20% with **no config changes whatsoever**. It then climbed continuously:
+
+| Total games | Iter (approx) | Decisive rate |
+|---|---|---|
+| ~15,150 | ~1783 | 13.2% (plateau) |
+| ~15,940 | **~1879** | **20.4%** ← breakthrough |
+| ~16,610 | ~1946 | 33.2% |
+| ~17,150 | ~2000 | ~35% (cap hit) |
+| ~18,270 | ~2113 | **43.2% and rising** |
+
+The 94-iter plateau was not stagnation — it was the buffer accumulating enough
+tactical experience to cross a learning threshold. Once enough decisive-game
+positions were in the training distribution, the policy head started finding
+forcing moves consistently and the decisive rate snowballed.
+
+### ELO response
+At ~33% decisive rate (iter ~1946), even the 5-iter eval comparison began producing
+decisive results: `5W/5D/0L`. ELO moved 1008→1016 organically. This confirmed the
+improvement was real — the greedy policy became strong enough to beat a 5-iter-older
+version of itself.
+
+### Current signals (iter ~2113)
+- Decisive rate: **43%+** and still climbing
+- Policy loss: ~1.60 (elevated — model in rapid tactical learning phase; expected)
+- Value loss: ~0.07-0.08 (healthy for this decisive rate; warning threshold scales up)
+- ELO: 1016 (eval games still `0W/10D/0L` — greedy policy lags noisy self-play)
+
+### Self-play W/D/L clarification
+The W/D/L in self-play logs (`0W / 3D / 7L`) is **not** the model losing to a
+previous version. It is the current model playing **against itself** — W = White
+won, L = Black won, same network on both sides. The current loss skew (Black winning
+more than White) reflects a self-play color asymmetry: the model has developed
+strong second-player responses that punish White's first moves. This is normal
+and not a sign of regression.
+
+Eval (`Eval vs prev: 0W/10D/0L`) is where the current network plays a previous
+checkpoint. Those are still drawing because greedy (no-noise) deterministic play
+is more conservative than noisy self-play. ELO will move again once the tactical
+patterns consolidate into the greedy policy.
 
 ---
 
