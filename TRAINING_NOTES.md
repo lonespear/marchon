@@ -220,8 +220,12 @@ Fresh start from iter 1 with the full set of fixes. Key milestones:
 | ~1946 | Decisive rate 33%; ELO moves 1008→1016 via 5W/5D/0L eval — first real eval win |
 | ~2000 | Run cap hit; restarted from archon_iter_2000.pt |
 | ~2113 | Decisive rate **43% and still climbing**; ELO 1016; policy loss ~1.60; value loss ~0.07-0.08 |
+| ~2300 | ELO climbs to 1024 via 5W/5D/0L eval; decisive rate ~58-60% |
+| ~2350 | ELO reaches 1032; split evals (5W/0D/5L) appear — both sides decisive in eval |
+| **~2425** | **ELO hits 1040 — new all-time high** (prev watermark was 1024 at iter ~495) |
+| ~2430 | ELO oscillates back to 1032→1024; decisive rate holding ~59-61%; policy loss ~1.85 |
 
-Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356) → ~2.15 (iter 1546, noise phase) → ~1.34 (iter 1756) → ~1.22 (iter 1830) → ~1.60 (iter 2113, tactical learning phase).
+Policy loss trajectory: 4.78 (iter 1) → ~1.41 (iter 1356) → ~2.15 (iter 1546, noise phase) → ~1.34 (iter 1756) → ~1.22 (iter 1830) → ~1.60 (iter 2113) → ~1.85 (iter 2437, tactical learning phase).
 
 ---
 
@@ -314,11 +318,22 @@ decisive results: `5W/5D/0L`. ELO moved 1008→1016 organically. This confirmed 
 improvement was real — the greedy policy became strong enough to beat a 5-iter-older
 version of itself.
 
-### Current signals (iter ~2113)
-- Decisive rate: **43%+** and still climbing
-- Policy loss: ~1.60 (elevated — model in rapid tactical learning phase; expected)
-- Value loss: ~0.07-0.08 (healthy for this decisive rate; warning threshold scales up)
-- ELO: 1016 (eval games still `0W/10D/0L` — greedy policy lags noisy self-play)
+### Current signals (iter ~2437, Mar 1 2026)
+- Decisive rate: **59-61%**, stabilising at new plateau
+- Policy loss: ~1.83-1.88 (elevated — model learning hard tactical distributions)
+- Value loss: ~0.069-0.082 (stable and healthy at this decisive rate)
+- ELO: 1024 (oscillating 1016-1040; new all-time high of **1040** hit at iter ~2425)
+- Split evals (`5W/0D/5L`) now appearing — eval games are decisive from both sides
+
+### ELO oscillation pattern (Mar 1, 2026)
+At 60% decisive rate the greedy eval policy has become decisive enough that both
+the current and 25-iter-old checkpoints win all their games as the "home" side —
+producing `5W/0D/5L` splits with no ELO change, and alternating `5W/5D/0L` gains
+with `0W/5D/5L` losses as the two versions trade advantage. This is the
+co-evolutionary oscillation described in `TRAINING_NOTES.md` and is expected.
+
+The ELO floor is rising: was stuck at 1008 for 700+ iterations, now bouncing
+1016–1040. The upward trend is real even if individual evals oscillate.
 
 ### Self-play W/D/L clarification
 The W/D/L in self-play logs (`0W / 3D / 7L`) is **not** the model losing to a
