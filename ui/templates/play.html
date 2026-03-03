@@ -215,6 +215,50 @@
     #move-list::-webkit-scrollbar { width: 4px; }
     #move-list::-webkit-scrollbar-track { background: #0f3460; border-radius: 2px; }
     #move-list::-webkit-scrollbar-thumb { background: #1a6b9a; border-radius: 2px; }
+
+    /* ── Color picker modal ──────────────────────────────────────────────── */
+    #color-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    #color-modal.visible { display: flex; }
+
+    .color-modal-inner {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 12px;
+      padding: 32px 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .color-modal-inner h2 {
+      font-size: 1rem;
+      color: #90caf9;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+
+    .color-btn-row { display: flex; gap: 12px; }
+
+    .color-btn {
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #1a6b9a;
+      border-radius: 8px;
+      padding: 10px 22px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .color-btn:hover { background: #1565c0; }
   </style>
 </head>
 <body>
@@ -256,6 +300,18 @@
 
   </main>
 
+  <!-- ── Color picker modal ──────────────────────────────────────────────── -->
+  <div id="color-modal">
+    <div class="color-modal-inner">
+      <h2>Choose your color</h2>
+      <div class="color-btn-row">
+        <button class="color-btn" onclick="startGame('white')">White</button>
+        <button class="color-btn" onclick="startGame('random')">Random</button>
+        <button class="color-btn" onclick="startGame('black')">Black</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Scripts ─────────────────────────────────────────────────────────── -->
   <!-- jQuery (required by chessboard.js) -->
   <script src="/static/jquery-3.7.1.min.js"></script>
@@ -271,6 +327,7 @@
     var game = new Chess();
     var board = null;
     var locked = false;   // true while AI is thinking or game is over
+    var humanColor = 'white';  // 'white' or 'black'
 
     // ── Eval bar ───────────────────────────────────────────────────────────
     function updateEvalBar(value) {
@@ -335,6 +392,7 @@
       fetch('/api/state')
         .then(function(r) { return r.json(); })
         .then(function(data) {
+          humanColor = data.human_color || 'white';
           game.load(data.fen);
           if (board) {
             board.position(data.fen);
@@ -396,29 +454,50 @@
         });
     }
 
-    // ── New game ───────────────────────────────────────────────────────────
+    // ── New game — show color picker ────────────────────────────────────────
     function newGame() {
-      fetch('/api/reset', { method: 'POST' })
+      document.getElementById('color-modal').classList.add('visible');
+    }
+
+    // ── Start game with chosen color ────────────────────────────────────────
+    function startGame(color) {
+      document.getElementById('color-modal').classList.remove('visible');
+      setLocked(true);
+      setStatus('Setting up…', '');
+
+      fetch('/api/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color: color })
+      })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          game.reset();
-          board.start();
-          renderMoves([], '');
-          updateEvalBar(0);
-          setStatus('Your move (White)', '');
+          humanColor = data.human_color;
+          game.load(data.fen);
+          var orient = humanColor === 'black' ? 'black' : 'white';
+          if (board) {
+            board.orientation(orient);
+            board.position(data.fen);
+          } else {
+            initBoard(data.fen);
+          }
+          renderMoves(data.moves || [], '');
+          updateEvalBar(data.value || 0);
+          setStatus(data.status, '');
           setLocked(false);
         })
         .catch(function(err) {
-          console.error('newGame error:', err);
+          console.error('startGame error:', err);
         });
     }
 
     // ── chessboard.js callbacks ────────────────────────────────────────────
     function onDragStart(source, piece, position, orientation) {
-      // Reject drag if locked, game over, or piece is Black
       if (locked) return false;
       if (game.game_over()) return false;
-      if (piece.search(/^b/) !== -1) return false;  // 'b' prefix = Black piece
+      // Only allow dragging the human's own pieces
+      if (humanColor === 'white' && piece.search(/^b/) !== -1) return false;
+      if (humanColor === 'black' && piece.search(/^w/) !== -1) return false;
     }
 
     function onDrop(source, target, piece, newPos, oldPos, orientation) {
@@ -429,6 +508,9 @@
       // Check if this is a pawn reaching the back rank (promotion)
       if (piece === 'wP' && target[1] === '8') {
         uci = source + target + 'q';  // default queen
+        promoMove = 'q';
+      } else if (piece === 'bP' && target[1] === '1') {
+        uci = source + target + 'q';
         promoMove = 'q';
       }
 
@@ -454,6 +536,7 @@
       var cfg = {
         draggable: true,
         position: fen || 'start',
+        orientation: humanColor === 'black' ? 'black' : 'white',
         pieceTheme: '/static/img/chesspieces/wikipedia/{piece}.png',
         onDragStart: onDragStart,
         onDrop: onDrop,

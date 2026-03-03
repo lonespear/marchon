@@ -4,10 +4,11 @@ play.py — Play against a trained Archon checkpoint in a browser.
 Usage:
     python play.py --checkpoint checkpoints/archon_iter_0100.pt [--port 5001] [--sims 20]
 
-Human plays White, AI plays Black.
+Human can choose to play White, Black, or random at the start of each game.
 Runs on port 5001 (separate from the training dashboard on port 5000).
 """
 import argparse
+import random
 import sys
 import threading
 
@@ -30,6 +31,7 @@ mcts_agent: MCTS | None = None
 ckpt_meta: dict = {"iteration": 0, "elo": 0, "total_games": 0}
 _move_lock = threading.Lock()
 _cached_value: float = 0.0   # last eval; updated after each move, not on every poll
+human_color: int = chess.WHITE  # chess.WHITE or chess.BLACK
 
 
 # ── Checkpoint loading ───────────────────────────────────────────────────────
@@ -133,8 +135,8 @@ def _get_status_message() -> str:
             return f"Black wins. ({termination.name.replace('_', ' ').title()})"
         termination = outcome.termination
         return f"Draw. ({termination.name.replace('_', ' ').title()})"
-    if board.turn == chess.WHITE:
-        return "Your move (White)"
+    if board.turn == human_color:
+        return "Your move"
     return "AI is thinking..."
 
 
@@ -162,6 +164,7 @@ def create_play_app() -> Flask:
                 "result": result_str,
                 "iteration": ckpt_meta["iteration"],
                 "elo": ckpt_meta["elo"],
+                "human_color": "white" if human_color == chess.WHITE else "black",
             }
         )
 
@@ -179,8 +182,8 @@ def create_play_app() -> Flask:
             if game_over:
                 return jsonify({"error": "Game is already over"}), 400
 
-            if board.turn != chess.WHITE:
-                return jsonify({"error": "It is not White's turn"}), 400
+            if board.turn != human_color:
+                return jsonify({"error": "It is not your turn"}), 400
 
             data = request.get_json(force=True)
             uci_str = (data or {}).get("move", "")
@@ -238,13 +241,43 @@ def create_play_app() -> Flask:
 
     @app.route("/api/reset", methods=["POST"])
     def api_reset():
-        global board, move_history, game_over, result_str, _cached_value
+        global board, move_history, game_over, result_str, _cached_value, human_color
+        data = request.get_json(force=True) or {}
+        color_req = data.get("color", "white")
+        if color_req == "random":
+            color_req = random.choice(["white", "black"])
+        human_color = chess.WHITE if color_req == "white" else chess.BLACK
+
         board = chess.Board()
         move_history = []
         game_over = False
         result_str = ""
         _cached_value = 0.0
-        return jsonify({"fen": board.fen()})
+
+        ai_move_uci = None
+        ai_move_san = None
+
+        # If human plays Black, AI (White) makes the opening move immediately
+        if human_color == chess.BLACK:
+            ai_move = mcts_agent.select_move(board, temperature=0.0, add_noise=False)
+            if ai_move is not None:
+                ai_move_san = board.san(ai_move)
+                ai_move_uci = ai_move.uci()
+                board.push(ai_move)
+                move_history.append(ai_move_san)
+                game_over, result_str = _detect_game_over()
+                _cached_value = _get_value_estimate()
+
+        return jsonify({
+            "fen": board.fen(),
+            "human_color": color_req,
+            "ai_move": ai_move_uci,
+            "ai_move_san": ai_move_san,
+            "moves": move_history,
+            "status": _get_status_message(),
+            "value": _cached_value,
+            "game_over": game_over,
+        })
 
     return app
 
