@@ -527,8 +527,9 @@
     }
 
     function onSnapEnd() {
-      // Do nothing — piece stays where dropped.
-      // board.position() is called by sendMove once the AI responds.
+      // Sync board immediately after drop (shows captures, castling, etc.)
+      // false = no animation, so the update is instant
+      board.position(game.fen(), false);
     }
 
     // ── Board initialisation ───────────────────────────────────────────────
