@@ -6,7 +6,7 @@
   <title>Archon — Play vs AI</title>
 
   <!-- chessboard.js 1.0.0 -->
-  <link rel="stylesheet" href="/static/chessboard-1.0.0.min.css" />
+  <link rel="stylesheet" href="static/chessboard-1.0.0.min.css" />
 
   <style>
     /* ── Reset & base ───────────────────────────────────────────────────── */
@@ -314,13 +314,13 @@
 
   <!-- ── Scripts ─────────────────────────────────────────────────────────── -->
   <!-- jQuery (required by chessboard.js) -->
-  <script src="/static/jquery-3.7.1.min.js"></script>
+  <script src="static/jquery-3.7.1.min.js"></script>
 
   <!-- chess.js for move validation -->
-  <script src="/static/chess.min.js"></script>
+  <script src="static/chess.min.js"></script>
 
   <!-- chessboard.js -->
-  <script src="/static/chessboard-1.0.0.min.js"></script>
+  <script src="static/chessboard-1.0.0.min.js"></script>
 
   <script>
     // ── State ──────────────────────────────────────────────────────────────
@@ -389,7 +389,7 @@
 
     // ── Load current state from server ─────────────────────────────────────
     function loadState() {
-      fetch('/api/state')
+      fetch('api/state')
         .then(function(r) { return r.json(); })
         .then(function(data) {
           humanColor = data.human_color || 'white';
@@ -418,7 +418,7 @@
       setLocked(true);
       setStatus('AI is thinking…', 'thinking');
 
-      fetch('/api/move', {
+      fetch('api/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ move: uci })
@@ -465,7 +465,7 @@
       setLocked(true);
       setStatus('Setting up…', '');
 
-      fetch('/api/reset', {
+      fetch('api/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ color: color })
@@ -538,7 +538,7 @@
         draggable: true,
         position: fen || 'start',
         orientation: humanColor === 'black' ? 'black' : 'white',
-        pieceTheme: '/static/img/chesspieces/wikipedia/{piece}.png',
+        pieceTheme: 'static/img/chesspieces/wikipedia/{piece}.png',
         onDragStart: onDragStart,
         onDrop: onDrop,
         onSnapEnd: onSnapEnd,
