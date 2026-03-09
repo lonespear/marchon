@@ -25,8 +25,8 @@ class ArchonConfig:
     channels:       int = 64    # conv channel width
 
     # ── MCTS ───────────────────────────────────────────────────────────────────
-    # Reference (full strength): num_simulations=50
-    num_simulations:   int   = 50    # simulations per move (higher = stronger)
+    # Reference (full strength): num_simulations=75
+    num_simulations:   int   = 75    # simulations per move (higher = stronger)
     c_puct:            float = 1.4   # exploration vs exploitation balance
     dirichlet_alpha:   float = 0.3   # noise concentration at root
     dirichlet_epsilon: float = 0.25  # fraction of noise mixed into root priors
@@ -34,8 +34,8 @@ class ArchonConfig:
     temp_threshold:    int   = 120   # plies before switching to greedy selection
 
     # ── Self-play ──────────────────────────────────────────────────────────────
-    # Reference (full strength): games_per_iteration=10, max_game_length=300
-    games_per_iteration: int = 10    # self-play games per training cycle
+    # Reference (full strength): games_per_iteration=20, max_game_length=300
+    games_per_iteration: int = 20    # self-play games per training cycle
     max_game_length:     int = 200   # cap before adjudicating draw
 
     # ── Training ───────────────────────────────────────────────────────────────
@@ -50,8 +50,15 @@ class ArchonConfig:
     # ── Evaluation & ELO ───────────────────────────────────────────────────────
     checkpoint_every_n_iters: int   = 25   # save model weights every N iterations
     eval_every_n_iters:       int   = 5    # run ELO evaluation games every N iterations
-    eval_games:               int   = 10
+    eval_games:               int   = 20
     elo_k_factor:             float = 32.0
+
+    # ── Anchor evaluation ──────────────────────────────────────────────────────
+    # Set anchor_checkpoint to a fixed .pt file path to get an absolute quality
+    # signal (logged as "Eval vs anchor") without affecting the running ELO.
+    # Leave empty to disable.
+    anchor_checkpoint:         str = ""   # e.g. "checkpoints/archon_iter_2900.pt"
+    anchor_eval_every_n_iters: int = 250
 
     # ── Device ─────────────────────────────────────────────────────────────────
     # Will auto-detect CUDA if available; falls back to CPU.

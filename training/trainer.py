@@ -63,6 +63,20 @@ class Trainer:
             weight_decay = config.weight_decay,
         )
 
+        # ── Anchor network (fixed reference for absolute quality tracking) ───────
+        self._anchor_network = None
+        if config.anchor_checkpoint:
+            anchor = ArchonNet(
+                num_planes     = config.num_planes,
+                num_res_blocks = config.num_res_blocks,
+                channels       = config.channels,
+            ).to(config.device)
+            ckpt = torch.load(config.anchor_checkpoint, map_location=config.device)
+            anchor.load_state_dict(ckpt["model_state"])
+            anchor.eval()
+            self._anchor_network = anchor
+            self.log.info(f"Anchor checkpoint loaded: {config.anchor_checkpoint}")
+
         # ── Bookkeeping ───────────────────────────────────────────────────────
         self.iteration    = 0
         self.total_games  = 0
@@ -125,6 +139,11 @@ class Trainer:
                     self._evaluate_against(prev_network)
             if it % self.config.checkpoint_every_n_iters == 0:
                 prev_network = deepcopy(self.network)
+
+            # 5. Anchor eval — absolute quality signal, does not affect ELO.
+            if (self._anchor_network is not None
+                    and it % self.config.anchor_eval_every_n_iters == 0):
+                self._evaluate_against_anchor()
 
     # ── Self-play ─────────────────────────────────────────────────────────────
 
@@ -262,6 +281,47 @@ class Trainer:
         )
         if self.shared:
             self.shared.update_elo(new_elo)
+
+    def _evaluate_against_anchor(self):
+        """
+        Play eval_games against the fixed anchor checkpoint.
+        Logs an absolute quality score but does NOT update the running ELO.
+        """
+        from mcts.mcts import MCTS
+
+        new_mcts    = MCTS(self.network,         self.config)
+        anchor_mcts = MCTS(self._anchor_network, self.config)
+
+        wins = draws = losses = 0
+
+        for game_idx in range(self.config.eval_games):
+            new_plays_white = (game_idx % 2 == 0)
+            white_mcts      = new_mcts    if new_plays_white else anchor_mcts
+            black_mcts      = anchor_mcts if new_plays_white else new_mcts
+
+            env = ChessEnv()
+            env.reset()
+            ply = 0
+
+            while not env.done and ply < self.config.max_game_length:
+                mcts = white_mcts if env.board.turn == chess.WHITE else black_mcts
+                move = mcts.select_move(env.board, temperature=0.0, add_noise=False)
+                if move is None:
+                    break
+                env.step(move)
+                ply += 1
+
+            result  = env.result or "draw"
+            new_won = (result == "white") == new_plays_white
+
+            if   result == "draw": draws   += 1
+            elif new_won:          wins    += 1
+            else:                  losses  += 1
+
+        score = (wins + 0.5 * draws) / self.config.eval_games * 100
+        self.log.info(
+            f"  Eval vs anchor: {wins}W/{draws}D/{losses}L   score={score:.1f}%"
+        )
 
     # ── Checkpoints ───────────────────────────────────────────────────────────
 
