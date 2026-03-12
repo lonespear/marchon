@@ -26,7 +26,7 @@ class ArchonConfig:
 
     # ── MCTS ───────────────────────────────────────────────────────────────────
     # Reference (full strength): num_simulations=75
-    num_simulations:   int   = 75    # simulations per move (higher = stronger)
+    num_simulations:   int   = 100   # simulations per move (higher = stronger)
     c_puct:            float = 1.4   # exploration vs exploitation balance
     dirichlet_alpha:   float = 0.3   # noise concentration at root
     dirichlet_epsilon: float = 0.25  # fraction of noise mixed into root priors
