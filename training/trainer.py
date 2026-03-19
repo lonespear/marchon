@@ -18,8 +18,10 @@ thread can safely read them at any time.
 """
 
 import logging
+import multiprocessing as mp
 import threading
 from collections import deque
+from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional
@@ -34,6 +36,27 @@ from model.network import ArchonNet
 from training.self_play import SelfPlay
 from utils.replay_buffer import ReplayBuffer
 from utils.elo import ELOTracker
+
+
+def _run_game_worker(args: tuple):
+    """
+    Subprocess worker: reconstruct the network from a CPU state dict and play
+    one complete self-play game.  Runs in a spawned process so each worker
+    gets its own CUDA context — all games in an iteration execute in parallel.
+    """
+    state_dict_cpu, config = args
+
+    network = ArchonNet(
+        num_planes=config.num_planes,
+        num_res_blocks=config.num_res_blocks,
+        channels=config.channels,
+    )
+    network.load_state_dict(state_dict_cpu)
+    network.to(config.device)
+    network.eval()
+
+    sp = SelfPlay(network, config, shared_state=None)
+    return sp.play_game()
 
 
 class Trainer:
@@ -54,7 +77,6 @@ class Trainer:
         ).to(config.device)
 
         self.replay_buffer = ReplayBuffer(config.replay_buffer_capacity)
-        self.self_play     = SelfPlay(self.network, config, shared_state=shared_state)
         self.elo           = ELOTracker(k_factor=config.elo_k_factor)
 
         self.optimizer = optim.Adam(
@@ -148,14 +170,24 @@ class Trainer:
     # ── Self-play ─────────────────────────────────────────────────────────────
 
     def _run_self_play(self):
-        wins = draws = losses = 0
+        # CPU snapshot of current weights — safe to pickle across process boundaries.
+        state_dict_cpu = {k: v.cpu().clone() for k, v in self.network.state_dict().items()}
 
-        for _ in range(self.config.games_per_iteration):
-            record = self.self_play.play_game()
+        n    = self.config.games_per_iteration
+        args = [(state_dict_cpu, self.config)] * n
+
+        # Each game runs in its own spawned process with its own CUDA context,
+        # so all games in the iteration execute in parallel on the GPU.
+        ctx = mp.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=n, mp_context=ctx) as pool:
+            records = list(pool.map(_run_game_worker, args))
+
+        wins = draws = losses = 0
+        for record in records:
             self.total_games += 1
+            record.game_id = self.total_games
             self.replay_buffer.push(record.experiences)
 
-            # Persist PGN
             pgn_path = self.config.games_dir / f"game_{self.total_games:05d}.pgn"
             pgn_path.write_text(record.pgn)
 
@@ -163,7 +195,6 @@ class Trainer:
             elif record.result == "black": losses += 1
             else:                          draws  += 1
 
-            # Notify UI of the latest game
             if self.shared:
                 self.shared.push_game(record)
 
