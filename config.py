@@ -35,7 +35,7 @@ class ArchonConfig:
 
     # ── Self-play ──────────────────────────────────────────────────────────────
     # Reference (full strength): games_per_iteration=20, max_game_length=300
-    games_per_iteration: int = 20    # self-play games per training cycle
+    games_per_iteration: int = 10    # self-play games per training cycle
     max_game_length:     int = 200   # cap before adjudicating draw
 
     # ── Training ───────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ class ArchonConfig:
     train_steps_per_iter:    int   = 60     # gradient steps per iteration
 
     # ── Evaluation & ELO ───────────────────────────────────────────────────────
-    checkpoint_every_n_iters: int   = 25   # save model weights every N iterations
+    checkpoint_every_n_iters: int   = 50   # save model weights every N iterations
     eval_every_n_iters:       int   = 5    # run ELO evaluation games every N iterations
     eval_games:               int   = 20
     elo_k_factor:             float = 32.0
