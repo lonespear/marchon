@@ -5,3 +5,4 @@ textual>=0.47.0
 rich>=13.0.0
 flask>=3.0.0
 tqdm>=4.65.0
+zstandard>=0.21.0
