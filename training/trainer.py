@@ -1,20 +1,16 @@
 """
-trainer.py — Main training loop for Archon.
+trainer.py — Main training loop for Marchon.
 
 One iteration:
-  ┌──────────────────────────────────────────────────────────┐
-  │  1. Self-play   → play N games, push experiences to      │
-  │                   replay buffer                          │
-  │  2. Train       → sample mini-batches, compute           │
-  │                   policy loss + value loss, back-prop     │
-  │  3. Checkpoint  → save model every K iterations          │
-  │  4. Evaluate    → pit new vs previous checkpoint,        │
-  │                   update ELO estimate                    │
-  └──────────────────────────────────────────────────────────┘
+  1. Self-play   -> play N games, push experiences to replay buffer
+  2. Train       -> sample mini-batches, compute losses, back-prop
+  3. Checkpoint  -> save model every K iterations
+  4. Evaluate    -> pit new vs previous checkpoint, update ELO
 
-The trainer communicates with the TUI via a SharedState object.
-All UI-facing updates happen through shared.*  calls so the UI
-thread can safely read them at any time.
+Speed additions vs Archon:
+  - Mixed precision (AMP) when use_amp=True and device=cuda
+  - torch.compile() kernel fusion when use_compile=True
+  - MoE load-balance aux loss integrated into training step
 """
 
 import logging
@@ -32,7 +28,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from env.chess_env import ChessEnv
-from model.network import ArchonNet
+from model.network import MarchonNet
 from training.self_play import SelfPlay
 from utils.replay_buffer import ReplayBuffer
 from utils.elo import ELOTracker
@@ -41,15 +37,18 @@ from utils.elo import ELOTracker
 def _run_game_worker(args: tuple):
     """
     Subprocess worker: reconstruct the network from a CPU state dict and play
-    one complete self-play game.  Runs in a spawned process so each worker
-    gets its own CUDA context — all games in an iteration execute in parallel.
+    one complete self-play game.  Spawned per game so all games in an
+    iteration execute in parallel.
     """
     state_dict_cpu, config = args
 
-    network = ArchonNet(
-        num_planes=config.num_planes,
-        num_res_blocks=config.num_res_blocks,
-        channels=config.channels,
+    network = MarchonNet(
+        num_planes     = config.num_planes,
+        num_res_blocks = config.num_res_blocks,
+        channels       = config.channels,
+        num_moe_blocks = config.num_moe_blocks,
+        num_experts    = config.num_experts,
+        top_k          = config.top_k,
     )
     network.load_state_dict(state_dict_cpu)
     network.to(config.device)
@@ -63,18 +62,29 @@ class Trainer:
 
     def __init__(self, config, shared_state=None):
         self.config  = config
-        self.shared  = shared_state     # may be None in headless mode
-        self.log     = logging.getLogger("Archon.Trainer")
+        self.shared  = shared_state
+        self.log     = logging.getLogger("Marchon.Trainer")
 
         config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         config.games_dir.mkdir(parents=True, exist_ok=True)
 
-        # ── Core objects ──────────────────────────────────────────────────────
-        self.network = ArchonNet(
+        # ── Core network ──────────────────────────────────────────────────────
+        self.network = MarchonNet(
             num_planes     = config.num_planes,
             num_res_blocks = config.num_res_blocks,
             channels       = config.channels,
+            num_moe_blocks = config.num_moe_blocks,
+            num_experts    = config.num_experts,
+            top_k          = config.top_k,
         ).to(config.device)
+
+        # Optional torch.compile — significant speedup on modern GPUs
+        if config.use_compile:
+            try:
+                self.network = torch.compile(self.network)
+                self.log.info("torch.compile() applied to network.")
+            except Exception as exc:
+                self.log.warning(f"torch.compile() unavailable: {exc}")
 
         self.replay_buffer = ReplayBuffer(config.replay_buffer_capacity)
         self.elo           = ELOTracker(k_factor=config.elo_k_factor)
@@ -85,13 +95,20 @@ class Trainer:
             weight_decay = config.weight_decay,
         )
 
-        # ── Anchor network (fixed reference for absolute quality tracking) ───────
+        # Mixed precision scaler (CUDA only)
+        self._use_amp = config.use_amp and config.device == "cuda"
+        self._scaler  = torch.amp.GradScaler("cuda") if self._use_amp else None
+
+        # ── Anchor network ────────────────────────────────────────────────────
         self._anchor_network = None
         if config.anchor_checkpoint:
-            anchor = ArchonNet(
+            anchor = MarchonNet(
                 num_planes     = config.num_planes,
                 num_res_blocks = config.num_res_blocks,
                 channels       = config.channels,
+                num_moe_blocks = config.num_moe_blocks,
+                num_experts    = config.num_experts,
+                top_k          = config.top_k,
             ).to(config.device)
             ckpt = torch.load(config.anchor_checkpoint, map_location=config.device)
             anchor.load_state_dict(ckpt["model_state"])
@@ -105,64 +122,49 @@ class Trainer:
         self.policy_losses:   list = []
         self.value_losses:    list = []
         self.combined_losses: list = []
-        self._decisive_window: deque = deque(maxlen=50)  # decisive games per iter
+        self._decisive_window: deque = deque(maxlen=50)
 
         self.log.info(
-            f"ArchonNet ready - {self.network.count_parameters():,} parameters "
-            f"on {config.device}"
+            f"MarchonNet ready — {self.network.count_parameters():,} parameters "
+            f"on {config.device}  AMP={self._use_amp}"
         )
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
     def run(self, num_iterations: int = 1000, stop_event: Optional[threading.Event] = None):
-        """
-        Run the training loop.
-
-        Pass a threading.Event to allow graceful shutdown from another thread.
-        """
-        prev_network = None   # used for ELO evaluation
+        prev_network = None
 
         start = self.iteration + 1
         end   = start + num_iterations
 
         for it in range(start, end):
             if stop_event and stop_event.is_set():
-                self.log.info("Stop signal received - exiting training loop.")
+                self.log.info("Stop signal received — exiting training loop.")
                 break
 
             self.iteration = it
             if self.shared:
                 self.shared.update_iteration(it, len(self.replay_buffer))
             self.log.info("-" * 50)
-            self.log.info(f"Iteration {it}   "
-                          f"buffer={len(self.replay_buffer)}")
+            self.log.info(f"Iteration {it}   buffer={len(self.replay_buffer)}")
 
-            # 1. Self-play
             self._run_self_play()
 
-            # 2. Train (only once the buffer has enough samples)
             if len(self.replay_buffer) >= self.config.min_buffer_size:
                 p_loss, v_loss = self._train_step()
                 self.log.info(
-                    f"  Loss - policy: {p_loss:.4f}   value: {v_loss:.4f}"
+                    f"  Loss — policy: {p_loss:.4f}   value: {v_loss:.4f}"
                 )
 
-            # 3. Checkpoint every N iterations
             if it % self.config.checkpoint_every_n_iters == 0:
                 self._save_checkpoint(it)
 
-            # 4. Evaluate against previous checkpoint every N iterations.
-            # prev_network is only refreshed at checkpoint intervals so that
-            # eval compares against a ~25-iter-old baseline rather than a
-            # 5-iter-old one — giving enough divergence to produce decisive
-            # eval games and meaningful ELO updates.
             if it % self.config.eval_every_n_iters == 0:
                 if prev_network is not None:
                     self._evaluate_against(prev_network)
             if it % self.config.checkpoint_every_n_iters == 0:
                 prev_network = deepcopy(self.network)
 
-            # 5. Anchor eval — absolute quality signal, does not affect ELO.
             if (self._anchor_network is not None
                     and it % self.config.anchor_eval_every_n_iters == 0):
                 self._evaluate_against_anchor()
@@ -170,14 +172,11 @@ class Trainer:
     # ── Self-play ─────────────────────────────────────────────────────────────
 
     def _run_self_play(self):
-        # CPU snapshot of current weights — safe to pickle across process boundaries.
         state_dict_cpu = {k: v.cpu().clone() for k, v in self.network.state_dict().items()}
 
         n    = self.config.games_per_iteration
         args = [(state_dict_cpu, self.config)] * n
 
-        # Each game runs in its own spawned process with its own CUDA context,
-        # so all games in the iteration execute in parallel on the GPU.
         ctx = mp.get_context("spawn")
         with ProcessPoolExecutor(max_workers=n, mp_context=ctx) as pool:
             records = list(pool.map(_run_game_worker, args))
@@ -199,9 +198,9 @@ class Trainer:
                 self.shared.push_game(record)
 
         self._decisive_window.append(wins + losses)
-        decisive_games = sum(self._decisive_window)
+        decisive_games  = sum(self._decisive_window)
         total_in_window = len(self._decisive_window) * self.config.games_per_iteration
-        decisive_pct = decisive_games / total_in_window * 100 if total_in_window else 0.0
+        decisive_pct    = decisive_games / total_in_window * 100 if total_in_window else 0.0
 
         self.log.info(
             f"  Self-play: {wins}W / {draws}D / {losses}L   "
@@ -215,11 +214,9 @@ class Trainer:
 
     def _train_step(self) -> tuple:
         """
-        Run config.train_steps_per_iter gradient updates.
+        Run config.train_steps_per_iter gradient updates with AMP when enabled.
 
-        Loss = policy_loss + value_loss
-          policy_loss : cross-entropy between MCTS distribution and network output
-          value_loss  : MSE between network value head and game outcome
+        Total loss = policy_loss + value_loss + load_balance_coeff * aux_loss
         """
         self.network.train()
         total_p = total_v = 0.0
@@ -231,20 +228,29 @@ class Trainer:
             p = torch.FloatTensor(policies).to(self.config.device)
             v = torch.FloatTensor(values).unsqueeze(1).to(self.config.device)
 
-            policy_logits, value_pred = self.network(s)
-
-            # Policy: cross-entropy with MCTS target distribution
-            log_p   = F.log_softmax(policy_logits, dim=1)
-            p_loss  = -(p * log_p).sum(dim=1).mean()
-
-            # Value: MSE against game outcome
-            v_loss  = F.mse_loss(value_pred, v)
-
-            loss = p_loss + v_loss
-            self.optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.network.parameters(), 1.0)
-            self.optimizer.step()
+            if self._use_amp:
+                with torch.amp.autocast("cuda"):
+                    policy_logits, value_pred, aux_loss = self.network(s)
+                    log_p  = F.log_softmax(policy_logits, dim=1)
+                    p_loss = -(p * log_p).sum(dim=1).mean()
+                    v_loss = F.mse_loss(value_pred, v)
+                    loss   = p_loss + v_loss + self.config.load_balance_coeff * aux_loss
+                self.optimizer.zero_grad()
+                self._scaler.scale(loss).backward()
+                self._scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(self.network.parameters(), 1.0)
+                self._scaler.step(self.optimizer)
+                self._scaler.update()
+            else:
+                policy_logits, value_pred, aux_loss = self.network(s)
+                log_p  = F.log_softmax(policy_logits, dim=1)
+                p_loss = -(p * log_p).sum(dim=1).mean()
+                v_loss = F.mse_loss(value_pred, v)
+                loss   = p_loss + v_loss + self.config.load_balance_coeff * aux_loss
+                self.optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.network.parameters(), 1.0)
+                self.optimizer.step()
 
             total_p += p_loss.item()
             total_v += v_loss.item()
@@ -268,10 +274,6 @@ class Trainer:
     # ── Evaluation ────────────────────────────────────────────────────────────
 
     def _evaluate_against(self, old_network):
-        """
-        Play eval_games between the current network and old_network.
-        Update ELO based on the aggregate win rate.
-        """
         from mcts.mcts import MCTS
 
         new_mcts = MCTS(self.network,  self.config)
@@ -296,16 +298,16 @@ class Trainer:
                 env.step(move)
                 ply += 1
 
-            result = env.result or "draw"
+            result  = env.result or "draw"
             new_won = (result == "white") == new_plays_white
 
-            if   result == "draw": draws += 1
-            elif new_won:          wins  += 1
+            if   result == "draw": draws  += 1
+            elif new_won:          wins   += 1
             else:                  losses += 1
 
         new_elo = self.elo.update_from_match(
             wins=wins, draws=draws, losses=losses,
-            opponent_rating=self.elo.rating,  # prev version treated as same ELO
+            opponent_rating=self.elo.rating,
         )
         self.log.info(
             f"  Eval vs prev: {wins}W/{draws}D/{losses}L   ELO -> {new_elo:.0f}"
@@ -314,10 +316,6 @@ class Trainer:
             self.shared.update_elo(new_elo)
 
     def _evaluate_against_anchor(self):
-        """
-        Play eval_games against the fixed anchor checkpoint.
-        Logs an absolute quality score but does NOT update the running ELO.
-        """
         from mcts.mcts import MCTS
 
         new_mcts    = MCTS(self.network,         self.config)
@@ -357,16 +355,16 @@ class Trainer:
     # ── Checkpoints ───────────────────────────────────────────────────────────
 
     def _save_checkpoint(self, iteration: int):
-        path = self.config.checkpoint_dir / f"archon_iter_{iteration:04d}.pt"
+        path = self.config.checkpoint_dir / f"marchon_iter_{iteration:04d}.pt"
         torch.save(
             {
-                "iteration":      iteration,
-                "model_state":    self.network.state_dict(),
+                "iteration":       iteration,
+                "model_state":     self.network.state_dict(),
                 "optimizer_state": self.optimizer.state_dict(),
-                "policy_losses":  self.policy_losses,
-                "value_losses":   self.value_losses,
-                "elo":            self.elo.rating,
-                "total_games":    self.total_games,
+                "policy_losses":   self.policy_losses,
+                "value_losses":    self.value_losses,
+                "elo":             self.elo.rating,
+                "total_games":     self.total_games,
             },
             path,
         )
@@ -383,7 +381,6 @@ class Trainer:
         self.elo.rating       = ckpt.get("elo", 1000.0)
         self.total_games      = ckpt.get("total_games", 0)
 
-        # Push restored history into the dashboard immediately
         if self.shared:
             self.shared.update_losses(self.policy_losses, self.value_losses, self.combined_losses)
             self.shared.update_elo(self.elo.rating)

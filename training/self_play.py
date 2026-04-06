@@ -175,7 +175,7 @@ def _build_pgn(
     result_str = {"white": "1-0", "black": "0-1", "draw": "1/2-1/2"}.get(result, "*")
     board  = chess.Board()
     tokens = [
-        f'[Event "Archon Self-Play"]',
+        f'[Event "Marchon Self-Play"]',
         f'[Game "{game_id}"]',
         f'[Result "{result_str}"]',
         "",

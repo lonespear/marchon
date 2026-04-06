@@ -1,5 +1,5 @@
 """
-config.py — Central configuration for Archon.
+config.py — Central configuration for Marchon.
 
 All tunable hyperparameters live here so you can experiment
 without hunting through source files.
@@ -11,63 +11,72 @@ BASE_DIR = Path(__file__).parent
 
 
 @dataclass
-class ArchonConfig:
+class MarchonConfig:
     # ── Paths ──────────────────────────────────────────────────────────────────
     checkpoint_dir: Path = BASE_DIR / "checkpoints"
     games_dir:      Path = BASE_DIR / "games"
-    log_file:       Path = BASE_DIR / "archon.log"
+    log_file:       Path = BASE_DIR / "marchon.log"
 
     # ── Model architecture ─────────────────────────────────────────────────────
-    # Increasing these improves strength but slows training.
-    # Good starter values for CPU / Raspberry Pi: 6 blocks, 64 channels.
-    num_planes:     int = 19    # input feature planes (see chess_env.py)
-    num_res_blocks: int = 6     # depth of residual tower
-    channels:       int = 64    # conv channel width
+    # Backbone: 4 standard ResBlocks + num_moe_blocks MoE blocks.
+    # Channels raised to 128 for better GPU utilisation vs Archon's 64.
+    num_planes:     int = 19     # input feature planes (see chess_env.py)
+    num_res_blocks: int = 4      # standard residual blocks before MoE tower
+    channels:       int = 128    # conv channel width throughout
+
+    # ── MoE settings ──────────────────────────────────────────────────────────
+    # Each MoEResBlock has num_experts expert ResBlocks routed by a small
+    # linear network.  top_k experts are blended per position.
+    num_moe_blocks:     int   = 2     # MoE blocks appended after res_tower
+    num_experts:        int   = 4     # experts per MoE block
+    top_k:              int   = 2     # experts activated per forward pass
+    load_balance_coeff: float = 0.01  # weight on expert load-balancing aux loss
 
     # ── MCTS ───────────────────────────────────────────────────────────────────
-    # Reference (full strength): num_simulations=75
-    num_simulations:   int   = 100   # simulations per move (higher = stronger)
-    c_puct:            float = 1.4   # exploration vs exploitation balance
-    dirichlet_alpha:   float = 0.3   # noise concentration at root
-    dirichlet_epsilon: float = 0.25  # fraction of noise mixed into root priors
-    temperature:       float = 1.0   # move diversity in early game
-    temp_threshold:    int   = 120   # plies before switching to greedy selection
+    num_simulations:   int   = 100
+    c_puct:            float = 1.4
+    dirichlet_alpha:   float = 0.3
+    dirichlet_epsilon: float = 0.25
+    temperature:       float = 1.0
+    temp_threshold:    int   = 120
 
     # ── Self-play ──────────────────────────────────────────────────────────────
-    # Reference (full strength): games_per_iteration=20, max_game_length=300
-    games_per_iteration: int = 10    # self-play games per training cycle
-    max_game_length:     int = 200   # cap before adjudicating draw
+    games_per_iteration: int = 16    # raised from 10 — more GPU parallelism
+    max_game_length:     int = 200
 
     # ── Training ───────────────────────────────────────────────────────────────
-    # Reference (full strength): train_steps_per_iter=100
-    batch_size:              int   = 128
+    batch_size:              int   = 256       # raised from 128 — better GPU utilisation
     learning_rate:           float = 2e-3
     weight_decay:            float = 1e-4
-    replay_buffer_capacity:  int   = 50_000
-    min_buffer_size:         int   = 500    # start training after this many samples
-    train_steps_per_iter:    int   = 60     # gradient steps per iteration
+    replay_buffer_capacity:  int   = 100_000  # raised from 50k
+    min_buffer_size:         int   = 500
+    train_steps_per_iter:    int   = 80        # raised from 60
+
+    # ── Speed ──────────────────────────────────────────────────────────────────
+    use_amp:     bool = True   # torch AMP mixed precision (CUDA only)
+    use_compile: bool = True   # torch.compile() kernel fusion (PyTorch >= 2.0)
 
     # ── Evaluation & ELO ───────────────────────────────────────────────────────
-    checkpoint_every_n_iters: int   = 50   # save model weights every N iterations
-    eval_every_n_iters:       int   = 5    # run ELO evaluation games every N iterations
+    checkpoint_every_n_iters: int   = 50
+    eval_every_n_iters:       int   = 5
     eval_games:               int   = 20
     elo_k_factor:             float = 32.0
 
     # ── Anchor evaluation ──────────────────────────────────────────────────────
-    # Set anchor_checkpoint to a fixed .pt file path to get an absolute quality
-    # signal (logged as "Eval vs anchor") without affecting the running ELO.
-    # Leave empty to disable.
-    anchor_checkpoint:         str = ""   # e.g. "checkpoints/archon_iter_2900.pt"
+    anchor_checkpoint:         str = ""
     anchor_eval_every_n_iters: int = 250
 
     # ── Device ─────────────────────────────────────────────────────────────────
-    # Will auto-detect CUDA if available; falls back to CPU.
     device: str = "cpu"
 
 
-def build_config() -> ArchonConfig:
+# Keep the old name as an alias so play.py imports don't break
+ArchonConfig = MarchonConfig
+
+
+def build_config() -> MarchonConfig:
     import torch
-    cfg = ArchonConfig()
+    cfg = MarchonConfig()
     if torch.cuda.is_available():
         cfg.device = "cuda"
     return cfg

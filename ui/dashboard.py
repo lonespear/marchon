@@ -550,7 +550,7 @@ def _sparkline(values: List[float], color: str = "bright_cyan") -> Text:
 
 class ArchonDashboard(App):
     """
-    Archon training monitor.
+    Marchon training monitor.
 
     Keybindings
     -----------
@@ -558,7 +558,7 @@ class ArchonDashboard(App):
     r : return to live game view (after clicking a historical game)
     """
 
-    TITLE = "⚔  Archon — Chess RL Monitor"
+    TITLE = "Marchon — MoE Chess RL Monitor"
 
     CSS = """
     Screen {

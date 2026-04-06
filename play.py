@@ -16,17 +16,17 @@ import chess
 import torch
 from flask import Flask, jsonify, render_template, request
 
-from config import ArchonConfig, config
+from config import MarchonConfig, config
 from env.chess_env import ChessEnv
 from mcts.mcts import MCTS
-from model.network import ArchonNet
+from model.network import MarchonNet
 
 # ── Module-level game state (single player, no sessions) ─────────────────────
 board = chess.Board()
 move_history: list[str] = []   # SAN strings
 game_over = False
 result_str = ""
-network: ArchonNet | None = None
+network: MarchonNet | None = None
 mcts_agent: MCTS | None = None
 ckpt_meta: dict = {"iteration": 0, "elo": 0, "total_games": 0}
 _move_lock = threading.Lock()
@@ -48,10 +48,13 @@ def load_checkpoint(path: str, sims_override: int | None = None) -> None:
         sys.exit(1)
 
     # Build network from config (must match checkpoint architecture)
-    net = ArchonNet(
-        num_planes=cfg.num_planes,
-        num_res_blocks=cfg.num_res_blocks,
-        channels=cfg.channels,
+    net = MarchonNet(
+        num_planes     = cfg.num_planes,
+        num_res_blocks = cfg.num_res_blocks,
+        channels       = cfg.channels,
+        num_moe_blocks = cfg.num_moe_blocks,
+        num_experts    = cfg.num_experts,
+        top_k          = cfg.top_k,
     )
 
     state_dict = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))

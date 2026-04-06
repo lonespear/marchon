@@ -1,0 +1,30 @@
+> jovyan@972c3f649a14:~/archon$ nohup python main.py
+  --headless --iterations 2000 > training_out.txt 2>&1 &
+  [1] 82776
+  jovyan@972c3f649a14:~/archon$
+
+● It's running with PID 82776. Detach and let it cook overnight.
+
+  Quick reference for tomorrow:
+  # Check it's still alive
+  ps aux | grep 82776
+
+  # See latest training output
+  tail -50 archon/archon.log
+
+  # Kill it if needed
+  kill 82776
+
+
+20feb nohup run
+
+jovyan@972c3f649a14:~/archon$ nohup python main.py --headless --iterations 2000 > training_out.txt 2>&1 &
+[1] 179661
+jovyan@972c3f649a14:~/archon$ 
+
+180391
+
+183212
+
+
+[1] 198064
