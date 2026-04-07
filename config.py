@@ -41,7 +41,7 @@ class MarchonConfig:
     temp_threshold:    int   = 120
 
     # ── Self-play ──────────────────────────────────────────────────────────────
-    games_per_iteration: int = 16    # raised from 10 — more GPU parallelism
+    games_per_iteration: int = 4     # sequential in-process games (no multiprocessing)
     max_game_length:     int = 200
 
     # ── Training ───────────────────────────────────────────────────────────────

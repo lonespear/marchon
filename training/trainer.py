@@ -14,10 +14,8 @@ Speed additions vs Archon:
 """
 
 import logging
-import multiprocessing as mp
 import threading
 from collections import deque
-from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional
@@ -32,30 +30,6 @@ from model.network import MarchonNet
 from training.self_play import SelfPlay
 from utils.replay_buffer import ReplayBuffer
 from utils.elo import ELOTracker
-
-
-def _run_game_worker(args: tuple):
-    """
-    Subprocess worker: reconstruct the network from a CPU state dict and play
-    one complete self-play game.  Spawned per game so all games in an
-    iteration execute in parallel.
-    """
-    state_dict_cpu, config = args
-
-    network = MarchonNet(
-        num_planes     = config.num_planes,
-        num_res_blocks = config.num_res_blocks,
-        channels       = config.channels,
-        num_moe_blocks = config.num_moe_blocks,
-        num_experts    = config.num_experts,
-        top_k          = config.top_k,
-    )
-    network.load_state_dict(state_dict_cpu)
-    network.to(config.device)
-    network.eval()
-
-    sp = SelfPlay(network, config, shared_state=None)
-    return sp.play_game()
 
 
 class Trainer:
@@ -172,16 +146,13 @@ class Trainer:
     # ── Self-play ─────────────────────────────────────────────────────────────
 
     def _run_self_play(self):
-        state_dict_cpu = {k: v.cpu().clone() for k, v in self._clean_state_dict().items()}
-
-        n    = self.config.games_per_iteration
-        args = [(state_dict_cpu, self.config)] * n
-
-        ctx = mp.get_context("spawn")
-        with ProcessPoolExecutor(max_workers=n, mp_context=ctx) as pool:
-            records = list(pool.map(_run_game_worker, args))
+        sp = SelfPlay(self.network, self.config, shared_state=self.shared)
 
         wins = draws = losses = 0
+        records = []
+        for _ in range(self.config.games_per_iteration):
+            records.append(sp.play_game())
+
         for record in records:
             self.total_games += 1
             record.game_id = self.total_games
