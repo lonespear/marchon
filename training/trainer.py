@@ -376,7 +376,9 @@ class Trainer:
 
     def load_checkpoint(self, path: str):
         ckpt = torch.load(path, map_location=self.config.device)
-        self.network.load_state_dict(ckpt["model_state"])
+        # torch.compile() wraps the module; load into the underlying model directly
+        target = self.network._orig_mod if hasattr(self.network, "_orig_mod") else self.network
+        target.load_state_dict(ckpt["model_state"])
         self.optimizer.load_state_dict(ckpt["optimizer_state"])
         self.iteration        = ckpt.get("iteration", 0)
         self.policy_losses    = ckpt.get("policy_losses", [])
