@@ -53,8 +53,8 @@ class MarchonConfig:
     train_steps_per_iter:    int   = 80        # raised from 60
 
     # ── Speed ──────────────────────────────────────────────────────────────────
-    use_amp:     bool = True   # torch AMP mixed precision (CUDA only)
-    use_compile: bool = True   # torch.compile() kernel fusion (PyTorch >= 2.0)
+    use_amp:     bool = True    # torch AMP mixed precision (CUDA only)
+    use_compile: bool = False  # torch.compile() disabled — deadlocks with spawn workers
 
     # ── Evaluation & ELO ───────────────────────────────────────────────────────
     checkpoint_every_n_iters: int   = 50
