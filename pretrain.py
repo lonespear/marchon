@@ -185,11 +185,15 @@ def main():
             )
 
     # ── Save checkpoint ───────────────────────────────────────────────────────
+    # torch.compile() prefixes all keys with "_orig_mod." — strip it so the
+    # checkpoint is loadable by an uncompiled network in the trainer.
     network.eval()
+    raw_state = network.state_dict()
+    clean_state = {k.replace("_orig_mod.", ""): v for k, v in raw_state.items()}
     torch.save(
         {
             "iteration":       0,
-            "model_state":     network.state_dict(),
+            "model_state":     clean_state,
             "optimizer_state": optimizer.state_dict(),
             "policy_losses":   [],
             "value_losses":    [],

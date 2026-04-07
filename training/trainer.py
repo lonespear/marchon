@@ -356,10 +356,14 @@ class Trainer:
 
     def _save_checkpoint(self, iteration: int):
         path = self.config.checkpoint_dir / f"marchon_iter_{iteration:04d}.pt"
+        # Strip _orig_mod. prefix added by torch.compile() so checkpoints are
+        # portable to uncompiled networks (e.g. play.py, eval workers).
+        raw_state   = self.network.state_dict()
+        clean_state = {k.replace("_orig_mod.", ""): v for k, v in raw_state.items()}
         torch.save(
             {
                 "iteration":       iteration,
-                "model_state":     self.network.state_dict(),
+                "model_state":     clean_state,
                 "optimizer_state": self.optimizer.state_dict(),
                 "policy_losses":   self.policy_losses,
                 "value_losses":    self.value_losses,
