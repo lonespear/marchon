@@ -172,7 +172,7 @@ class Trainer:
     # ── Self-play ─────────────────────────────────────────────────────────────
 
     def _run_self_play(self):
-        state_dict_cpu = {k: v.cpu().clone() for k, v in self.network.state_dict().items()}
+        state_dict_cpu = {k: v.cpu().clone() for k, v in self._clean_state_dict().items()}
 
         n    = self.config.games_per_iteration
         args = [(state_dict_cpu, self.config)] * n
@@ -352,18 +352,21 @@ class Trainer:
             f"  Eval vs anchor: {wins}W/{draws}D/{losses}L   score={score:.1f}%"
         )
 
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _clean_state_dict(self, network=None):
+        """Return state dict with torch.compile's _orig_mod. prefix stripped."""
+        src = network if network is not None else self.network
+        return {k.replace("_orig_mod.", ""): v for k, v in src.state_dict().items()}
+
     # ── Checkpoints ───────────────────────────────────────────────────────────
 
     def _save_checkpoint(self, iteration: int):
         path = self.config.checkpoint_dir / f"marchon_iter_{iteration:04d}.pt"
-        # Strip _orig_mod. prefix added by torch.compile() so checkpoints are
-        # portable to uncompiled networks (e.g. play.py, eval workers).
-        raw_state   = self.network.state_dict()
-        clean_state = {k.replace("_orig_mod.", ""): v for k, v in raw_state.items()}
         torch.save(
             {
                 "iteration":       iteration,
-                "model_state":     clean_state,
+                "model_state":     self._clean_state_dict(),
                 "optimizer_state": self.optimizer.state_dict(),
                 "policy_losses":   self.policy_losses,
                 "value_losses":    self.value_losses,
